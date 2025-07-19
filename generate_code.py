@@ -10,6 +10,10 @@ from PIL import Image
 import base64
 import re
 from datasets import load_dataset
+import matplotlib.pyplot as plt
+import matplotlib
+import shutil
+import argparse
 
 def encode_image_to_base64(image_path):
     """Encode image to base64 string"""
@@ -49,9 +53,10 @@ def read_jsonl_file(file_path):
 def get_save_path(model_name):
     """Get save path for generated code"""
     model_name = model_name.split("/")[-1]
-    # save_path = os.path.join("generated_results", model_name, "generated_code.jsonl")
-    save_path = os.path.join("generated_results", "qwen", "direct", "instruct", "generated_code.jsonl")
-    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    save_path = os.path.join("generated_results", model_name, "direct", "instruct")
+    if os.path.exists(save_path):
+        shutil.rmtree(save_path)
+    os.makedirs(save_path, exist_ok=True)
     return save_path
 
 def generate_code_for_image(model, processor, image_path, instruction):
@@ -93,7 +98,7 @@ def generate_code_for_image(model, processor, image_path, instruction):
         generated_ids = model.generate(
             **inputs, 
             do_sample=True,
-            max_new_tokens=1024,
+            max_new_tokens=2048,
         )
         generated_ids_trimmed = [
             out_ids[len(in_ids) :] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
@@ -113,29 +118,27 @@ def generate_code_for_image(model, processor, image_path, instruction):
 
 def main():
     """Generate code using Qwen2.5-VL-3B-Instruct model"""
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--num_samples", type=int, default=None, help="Number of samples to generate code for")
+    parser.add_argument("--model_name", type=str, default="Qwen/Qwen2.5-VL-3B-Instruct", help="Model name")
+    args = parser.parse_args()
     
     # Configuration
-    model_name = "Qwen/Qwen2.5-VL-3B-Instruct"
-    num_samples = 2
-    
-    print(f"Loading model: {model_name}")
+    model_name = args.model_name
+    num_samples = args.num_samples
     
     # Load model and processor
     model, processor = load_model_and_processor(model_name)
     
     dataset = load_dataset("TencentARC/Plot2Code", split="test")
     dataset = dataset.filter(lambda x: "matplotlib" in x["url"])
-    dataset = dataset.select(range(num_samples))
+    if num_samples is not None:
+        dataset = dataset.select(range(num_samples))
     
     
     # Get save path
     save_path = get_save_path(model_name)
     print(f"Results will be saved to {save_path}")
-    
-    # Clear previous results
-    if os.path.exists(save_path):
-        os.remove(save_path)
-        print("Removed previous results file")
         
     os.makedirs("data/images", exist_ok=True)
     
@@ -147,9 +150,6 @@ def main():
             continue
         
         idx = len(results)
-        # file_name = item['file_name']
-        # image_path = os.path.join(image_directory, file_name)
-        # image_path = item['image_path']
         image = item['image']
         instruction = item['instruction']
         
@@ -159,6 +159,20 @@ def main():
         
         # Generate code
         generated_code = generate_code_for_image(model, processor, image_path, instruction)
+        generated_image_path = os.path.join(save_path, f"{idx}.png")
+        
+        try:
+            exec(generated_code)
+        except Exception as e:
+            print(f"Error executing code: {e}")
+        fig = plt.gcf()
+        fig.savefig(generated_image_path)
+        plt.close()
+        matplotlib.rcdefaults()
+        plt.cla()
+        plt.clf()
+        plt.close("all")
+        
         
         # Create result item
         result = {
@@ -166,18 +180,15 @@ def main():
             'ground_truth_path': image_path,
             'code': generated_code,
             'ground_truth_code': item['code'],
-            'generated_image_path': image_path
+            'generated_image_path': generated_image_path
         }
         results.append(result)
-        print("RESULT")
-        print(result)
         
+        results_save_path = os.path.join(save_path, "generated_code.jsonl")
+        os.makedirs(os.path.dirname(results_save_path), exist_ok=True)
         # Save incrementally
-        with open(save_path, 'a') as f:
+        with open(results_save_path, 'a') as f:
             f.write(json.dumps(result) + '\n')
-            
-        if len(results) >= num_samples:
-            break
     
     print(f"Generated code for {len(results)} samples")
     print(f"Results saved to {save_path}")

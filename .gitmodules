@@ -1,0 +1,3 @@
+[submodule "Plot2Code"]
+	path = Plot2Code
+	url = https://github.com/TencentARC/Plot2Code.git

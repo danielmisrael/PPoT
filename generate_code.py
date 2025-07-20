@@ -5,7 +5,7 @@ from transformers import Qwen2_5_VLForConditionalGeneration, AutoTokenizer, Auto
 from qwen_vl_utils import process_vision_info
 from PIL import Image
 from datasets import load_dataset
-import torch, matplotlib.pyplot as plt, shutil, argparse, matplotlib, transformers
+import torch, matplotlib.pyplot as plt, shutil, argparse, matplotlib, transformers, numpy as np
 
 def encode_image_to_base64(image_path: str) -> str:
     """Encode image to base64 string"""
@@ -29,13 +29,14 @@ def load_model_and_processor(model_name: str = "Qwen/Qwen2.5-VL-3B-Instruct"):
 
     return model, processor
 
-def extract_code(response_str: str) -> str:
+def extract_code(responses: list) -> list:
     """Extract code from response string"""
-    matches = re.findall(r'```python(.*?)```', response_str, re.DOTALL)
-    if matches:
-        return "\n".join(match.strip() for match in matches)
-    else:
-        return response_str
+    R = []
+    for response_str in responses:
+        matches = re.findall(r'```python(.*?)```', response_str, re.DOTALL)
+        if matches: R.append("\n".join(match.strip() for match in matches))
+        else: R.append(response_str)
+    return R
 
 def read_jsonl_file(file_path: str) -> str:
     """Read JSONL file"""
@@ -52,7 +53,7 @@ def get_save_path(model_name: str) -> str:
     return save_path
 
 def generate_code_for_image(model: transformers.AutoModelForCausalLM, processor: AutoProcessor,
-                            image_path: str, instruction: str, nsamples: int) -> str:
+                            image_path: str, instruction: str, nsamples: int) -> tuple:
     """Generate code for a single image"""
 
     # Create prompt
@@ -91,31 +92,28 @@ def generate_code_for_image(model: transformers.AutoModelForCausalLM, processor:
         generated_ids = model.generate(
             **inputs,
             do_sample=True,
+            top_p=1.0,
+            top_k=0,
+            temperature=0.7,
             max_new_tokens=2048,
             num_return_sequences=nsamples,
         )
-        generated_ids_trimmed = [
-            out_ids[len(in_ids):] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
-        ]
+        generated_ids_trimmed = [out_ids[inputs.input_ids.numel():] for out_ids in generated_ids]
         output_text = processor.batch_decode(
             generated_ids_trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False
         )
 
     # Extract code
-    code = extract_code(output_text[0])
+    code = extract_code(output_text)
 
-    # If no code found, return the full response
-    if not code:
-        code = output_text[0]
-
-    return code
+    return code, generated_ids_trimmed
 
 def main():
     """Generate code using Qwen2.5-VL-3B-Instruct model"""
     parser = argparse.ArgumentParser()
     parser.add_argument("--num_examples", type=int, default=None, help="Number of data examples to generate code for")
     parser.add_argument("--model_name", type=str, default="Qwen/Qwen2.5-VL-3B-Instruct", help="Model name")
-    parser.add_argument("--num_samples", type=int, default=128, help="Number of samples to generate")
+    parser.add_argument("--num_samples", type=int, default=16, help="Number of samples to generate")
     args = parser.parse_args()
 
     # Configuration
@@ -137,6 +135,9 @@ def main():
 
     os.makedirs("data/images", exist_ok=True)
 
+    results_save_path = os.path.join(save_path, "generated_code.jsonl")
+    os.makedirs(os.path.dirname(results_save_path), exist_ok=True)
+
     # Generate code for each sample
     results = []
     for item in tqdm(dataset, desc="Generating code"):
@@ -153,38 +154,37 @@ def main():
         image.save(image_path)
 
         # Generate code
-        generated_code = generate_code_for_image(model, processor, image_path, instruction,
-                                                 args.num_samples)
-        generated_image_path = os.path.join(save_path, f"{idx}.png")
+        generated_code, gen_ids = generate_code_for_image(model, processor, image_path,
+                                                          instruction, args.num_samples)
 
-        try:
-            exec(generated_code)
-        except Exception as e:
-            print(f"Error executing code: {e}")
-        fig = plt.gcf()
-        fig.savefig(generated_image_path)
-        plt.close()
-        matplotlib.rcdefaults()
-        plt.cla()
-        plt.clf()
-        plt.close("all")
+        for i, x in enumerate(generated_code):
+            generated_image_path = os.path.join(save_path, f"{idx}-{i}.png")
+            try:
+                exec(x)
+            except Exception as e:
+                print(f"Error executing code: {e}")
+            fig = plt.gcf()
+            fig.savefig(generated_image_path)
+            plt.close()
+            matplotlib.rcdefaults()
+            plt.cla()
+            plt.clf()
+            plt.close("all")
 
 
-        # Create result item
-        result = {
-            'idx': idx,
-            'ground_truth_path': image_path,
-            'code': generated_code,
-            'ground_truth_code': item['code'],
-            'generated_image_path': generated_image_path
-        }
-        results.append(result)
+            # Create result item
+            result = {
+                'idx': f"{idx}-{i}",
+                'ground_truth_path': image_path,
+                'code': x,
+                'ground_truth_code': item['code'],
+                'generated_image_path': generated_image_path
+            }
+            results.append(result)
 
-        results_save_path = os.path.join(save_path, "generated_code.jsonl")
-        os.makedirs(os.path.dirname(results_save_path), exist_ok=True)
-        # Save incrementally
-        with open(results_save_path, 'a') as f:
-            f.write(json.dumps(result) + '\n')
+            # Save incrementally
+            with open(results_save_path, 'a') as f:
+                f.write(json.dumps(result) + '\n')
 
     print(f"Generated code for {len(results)} samples")
     print(f"Results saved to {save_path}")

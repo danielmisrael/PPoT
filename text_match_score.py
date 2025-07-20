@@ -60,7 +60,7 @@ def match_texts(texts1, texts2, positions1, positions2, size_ratio):
             try:
                 distance = Levenshtein.distance(text1, text2)
                 position_sim = position_similarity(pos1, pos2, size_ratio)
-                
+
                 if distance < min_distance and position_sim > 0.8:
                     min_distance = distance
                     best_match_index = i
@@ -94,10 +94,10 @@ with open(text_match_score_file, "w") as jsonl_file:
         code = item['code']
         ground_truth_code = item['ground_truth_code']
         # Execute the code and save the images
-        
+
         img = Image.open(test_image_path)
         img_np = np.array(img)
-        
+
         # Check if test_image is all white
         if np.all(img_np == 255):
             result = {'ground_truth_path': ground_truth_path, 'test_image_path': test_image_path, 'text_match_score': 0.0}
@@ -106,7 +106,7 @@ with open(text_match_score_file, "w") as jsonl_file:
             jsonl_file.flush()
             print(f"Skipping all white image: {test_image_path}")
             continue
-        
+
         exec(ground_truth_code)
         fig1 = plt.gcf()
         plt.close()
@@ -124,7 +124,7 @@ with open(text_match_score_file, "w") as jsonl_file:
             jsonl_file.flush()
             print(f"Error executing code: {e}")
             continue
-        
+
         fig2 = plt.gcf()
         plt.close()
         matplotlib.rcdefaults()
@@ -154,21 +154,21 @@ if all_results:
     scores = [result['text_match_score'] for result in all_results]
     overall_score = np.mean(scores)
     standard_error = np.std(scores) / np.sqrt(len(scores))
-    
+
     print(f"Overall text match score: {overall_score:.4f} ± {standard_error:.4f}")
     print(f"Number of evaluated samples: {len(all_results)}")
-    
+
     # Write statistics at the top of the file
     stats = {
         'overall_score': overall_score,
         'standard_error': standard_error,
         'num_samples': len(all_results)
     }
-    
+
     # Read the current file content
     with open(text_match_score_file, 'r') as f:
         lines = f.readlines()
-    
+
     # Write statistics at the top, then the original content
     with open(text_match_score_file, 'w') as f:
         f.write(json.dumps(stats) + '\n')

@@ -82,7 +82,6 @@ def generate_code_for_image(model: transformers.AutoModelForCausalLM, processor:
         text=[text],
         images=image_inputs,
         padding=True,
-        num_return_sequences=nsamples,
         return_tensors="pt",
     )
     inputs = inputs.to("cuda")
@@ -93,6 +92,7 @@ def generate_code_for_image(model: transformers.AutoModelForCausalLM, processor:
             **inputs,
             do_sample=True,
             max_new_tokens=2048,
+            num_return_sequences=nsamples,
         )
         generated_ids_trimmed = [
             out_ids[len(in_ids) :] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)

@@ -15,7 +15,7 @@ git submodule update --init --recursive
 
 ### 2. Install dependencies
 ```bash
-pip install torch transformers datasets pillow tqdm qwen-vl-utils matplotlib
+pip install -r requirements.txt
 ```
 
 ## Usage

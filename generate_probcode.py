@@ -38,7 +38,7 @@ def get_probs(token_ids, logits):
 
     
 # Sketch of what the generation loop will look like
-def genenerate_ppl(model, tokenizer, input_ids, **gen_kwargs):
+def genenerate_probcode(model, tokenizer, input_ids, **gen_kwargs):
     with torch.no_grad():
         generated_ids = model.generate(
             input_ids, 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import os, json, sys, base64, re, shutil, argparse
+import os, json, sys, base64, re, shutil, argparse, pickle, gc
 from tqdm import tqdm
 from transformers import Qwen2_5_VLForConditionalGeneration, AutoTokenizer, AutoProcessor
 from qwen_vl_utils import process_vision_info
@@ -53,7 +53,7 @@ def get_save_path(model_name: str) -> str:
     return save_path
 
 def generate_code_for_image(model: transformers.AutoModelForCausalLM, processor: AutoProcessor,
-                            image_path: str, instruction: str, nsamples: int) -> tuple:
+                            image_path: str, instruction: str, nsamples: int, temperature: float) -> tuple:
     """Generate code for a single image"""
 
     # Create prompt
@@ -89,15 +89,18 @@ def generate_code_for_image(model: transformers.AutoModelForCausalLM, processor:
 
     # Inference: Generation of the output
     with torch.no_grad():
-        generated_ids = model.generate(
+        out = model.generate(
             **inputs,
             do_sample=True,
             top_p=1.0,
             top_k=0,
-            temperature=0.7,
+            temperature=temperature,
             max_new_tokens=2048,
             num_return_sequences=nsamples,
+            return_dict_in_generate=True,
+            output_logits=True,
         )
+        generated_ids = out.sequences.cpu()
         generated_ids_trimmed = [out_ids[inputs.input_ids.numel():] for out_ids in generated_ids]
         output_text = processor.batch_decode(
             generated_ids_trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False
@@ -106,7 +109,7 @@ def generate_code_for_image(model: transformers.AutoModelForCausalLM, processor:
     # Extract code
     code = extract_code(output_text)
 
-    return code, generated_ids_trimmed
+    return code, generated_ids_trimmed, tuple(x.cpu() for x in out.logits)
 
 def main():
     """Generate code using Qwen2.5-VL-3B-Instruct model"""
@@ -114,6 +117,7 @@ def main():
     parser.add_argument("--num_examples", type=int, default=None, help="Number of data examples to generate code for")
     parser.add_argument("--model_name", type=str, default="Qwen/Qwen2.5-VL-3B-Instruct", help="Model name")
     parser.add_argument("--num_samples", type=int, default=16, help="Number of samples to generate")
+    parser.add_argument("--temperature", type=float, default=0.7, help="Sampling temperature")
     args = parser.parse_args()
 
     # Configuration
@@ -139,13 +143,13 @@ def main():
     os.makedirs(os.path.dirname(results_save_path), exist_ok=True)
 
     # Generate code for each sample
-    results = []
+    objects_to_save = {"code": [], "ids": [], "logits": []}
+    idx = 0
     for item in tqdm(dataset, desc="Generating code"):
 
         if "matplotlib" not in item['url']:
             continue
 
-        idx = len(results)
         image = item['image']
         instruction = item['instruction']
 
@@ -154,9 +158,12 @@ def main():
         image.save(image_path)
 
         # Generate code
-        generated_code, gen_ids = generate_code_for_image(model, processor, image_path,
-                                                          instruction, args.num_samples)
-
+        generated_code, gen_ids, logits = generate_code_for_image(model, processor, image_path,
+                                                                  instruction, args.num_samples,
+                                                                  args.temperature)
+        objects_to_save["code"].append(generated_code)
+        objects_to_save["ids"].append(gen_ids)
+        objects_to_save["logits"].append(logits)
         for i, x in enumerate(generated_code):
             generated_image_path = os.path.join(save_path, f"{idx}-{i}.png")
             try:
@@ -164,7 +171,10 @@ def main():
             except Exception as e:
                 print(f"Error executing code: {e}")
             fig = plt.gcf()
-            fig.savefig(generated_image_path)
+            try:
+                fig.savefig(generated_image_path)
+            except Exception as e:
+                print(f"Savefig error: {e}")
             plt.close()
             matplotlib.rcdefaults()
             plt.cla()
@@ -180,14 +190,16 @@ def main():
                 'ground_truth_code': item['code'],
                 'generated_image_path': generated_image_path
             }
-            results.append(result)
 
             # Save incrementally
-            with open(results_save_path, 'a') as f:
-                f.write(json.dumps(result) + '\n')
+            with open(results_save_path, 'a') as f: f.write(json.dumps(result) + '\n')
+            gc.collect()
+            torch.cuda.empty_cache()
 
-    print(f"Generated code for {len(results)} samples")
+        idx += 1
+
     print(f"Results saved to {save_path}")
+    with open(os.path.join(save_path, "objects.pkl"), "wb") as f: pickle.dump(objects_to_save, f)
 
 if __name__ == "__main__":
     main()

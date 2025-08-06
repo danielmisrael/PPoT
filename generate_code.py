@@ -6,6 +6,7 @@ from qwen_vl_utils import process_vision_info
 from PIL import Image
 from datasets import load_dataset
 import torch, matplotlib.pyplot as plt, shutil, argparse, matplotlib, transformers, numpy as np
+from utils import safe_execute_plot
 
 def encode_image_to_base64(image_path: str) -> str:
     """Encode image to base64 string"""
@@ -118,6 +119,8 @@ def main():
     parser.add_argument("--model_name", type=str, default="Qwen/Qwen2.5-VL-3B-Instruct", help="Model name")
     parser.add_argument("--num_samples", type=int, default=16, help="Number of samples to generate")
     parser.add_argument("--temperature", type=float, default=0.7, help="Sampling temperature")
+    parser.add_argument("--save_dir", type=str, default="", help="Path to save results")
+    
     args = parser.parse_args()
 
     # Configuration
@@ -135,6 +138,7 @@ def main():
 
     # Get save path
     save_path = get_save_path(model_name)
+    save_path = os.path.join(args.save_dir, save_path)
     print(f"Results will be saved to {save_path}")
 
     os.makedirs("data/images", exist_ok=True)
@@ -165,23 +169,8 @@ def main():
         objects_to_save["ids"].append(gen_ids)
         objects_to_save["logits"].append(logits)
         for i, x in enumerate(generated_code):
+
             generated_image_path = os.path.join(save_path, f"{idx}-{i}.png")
-            try:
-                exec(x)
-            except Exception as e:
-                print(f"Error executing code: {e}")
-            fig = plt.gcf()
-            try:
-                fig.savefig(generated_image_path)
-            except Exception as e:
-                print(f"Savefig error: {e}")
-            plt.close()
-            matplotlib.rcdefaults()
-            plt.cla()
-            plt.clf()
-            plt.close("all")
-
-
             # Create result item
             result = {
                 'idx': f"{idx}-{i}",
@@ -198,8 +187,14 @@ def main():
 
         idx += 1
 
-    print(f"Results saved to {save_path}")
-    with open(os.path.join(save_path, "objects.pkl"), "wb") as f: pickle.dump(objects_to_save, f)
+    
+    model_name = model_name.split("/")[-1]
+    save_path = os.path.join(args.save_dir, "generated_results", model_name, "outputs")
+    os.makedirs(save_path, exist_ok=True)
+    objects_save_path = os.path.join(save_path, "objects.pkl")
+    
+    print(f"Results saved to {args.save_dir}")
+    with open(os.path.join(objects_save_path), "wb") as f: pickle.dump(objects_to_save, f)
 
 if __name__ == "__main__":
     main()

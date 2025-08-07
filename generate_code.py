@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
-import os, json, sys, base64, re, shutil, argparse, pickle, gc
-from tqdm import tqdm
+import os, json, sys, base64, re, shutil, argparse, pickle, gc, pathlib
 from transformers import Qwen2_5_VLForConditionalGeneration, AutoTokenizer, AutoProcessor
 from qwen_vl_utils import process_vision_info
-from PIL import Image
-from datasets import load_dataset
 import torch, matplotlib.pyplot as plt, shutil, argparse, matplotlib, transformers, numpy as np
-from utils import safe_execute_plot
+import datasets, tqdm
+import utils
+
+def prepare_data(dataset_name: str, num_examples: int, filter_fn = None, **kwargs) -> datasets.Dataset:
+    D = datasets.load_dataset(dataset_name, **kwargs)
+    if filter_fn is not None: D = D.filter(filter_fn)
+    if num_examples is not None: D = D.select(range(num_examples))
+    os.makedirs("data/images", exist_ok=True)
+    return D
 
 def encode_image_to_base64(image_path: str) -> str:
     """Encode image to base64 string"""
@@ -44,17 +49,18 @@ def read_jsonl_file(file_path: str) -> str:
     with open(file_path, 'r') as json_file:
         return [json.loads(line) for line in json_file]
 
-def get_save_path(model_name: str) -> str:
+def get_save_path(out_path: str, model_name: str) -> str:
     """Get save path for generated code"""
     model_name = model_name.split("/")[-1]
-    save_path = os.path.join("generated_results", model_name, "direct", "instruct")
-    if os.path.exists(save_path):
-        shutil.rmtree(save_path)
+    save_path = os.path.join(out_path, model_name)
     os.makedirs(save_path, exist_ok=True)
+    os.makedirs(os.path.join(save_path, "imgs"), exist_ok=True)
+    os.makedirs(os.path.join(save_path, "data"), exist_ok=True)
+    os.makedirs(os.path.join(save_path, "ckpt"), exist_ok=True)
     return save_path
 
 def generate_code_for_image(model: transformers.AutoModelForCausalLM, processor: AutoProcessor,
-                            image_path: str, instruction: str, nsamples: int, temperature: float) -> tuple:
+                            image_path: str, instruction: str, **kwargs) -> tuple:
     """Generate code for a single image"""
 
     # Create prompt
@@ -95,11 +101,12 @@ def generate_code_for_image(model: transformers.AutoModelForCausalLM, processor:
             do_sample=True,
             top_p=1.0,
             top_k=0,
-            temperature=temperature,
+            #temperature=temperature,
             max_new_tokens=2048,
-            num_return_sequences=nsamples,
+            #num_return_sequences=nsamples,
             return_dict_in_generate=True,
             output_logits=True,
+            **kwargs
         )
         generated_ids = out.sequences.cpu()
         generated_ids_trimmed = [out_ids[inputs.input_ids.numel():] for out_ids in generated_ids]
@@ -112,6 +119,44 @@ def generate_code_for_image(model: transformers.AutoModelForCausalLM, processor:
 
     return code, generated_ids_trimmed, tuple(x.cpu() for x in out.logits)
 
+def generate_and_execute(idx: int, item: dict, model: transformers.AutoModel,
+                         processor: transformers.AutoProcessor, ground_truth_path: str,
+                         output_path: str, **kwargs):
+    chkpnt_path = os.path.join(output_path, "ckpt", f"{idx}")
+    if os.path.isfile(chkpnt_path): return
+    code, ids, logits = generate_code_for_image(model, processor, ground_truth_path,
+                                                item["instruction"], **kwargs)
+    for i, x in enumerate(code):
+        generated_image_path = os.path.join(output_path, "imgs", f"{idx}-{i}.png")
+        try:
+            exec(x)
+        except Exception as e:
+            print(f"Error executing code: {e}")
+        fig = plt.gcf()
+        try:
+            fig.savefig(generated_image_path)
+        except Exception as e:
+            print(f"Savefig error: {e}")
+        plt.close()
+        matplotlib.rcdefaults()
+        plt.cla()
+        plt.clf()
+        plt.close("all")
+
+        # Create result item
+        result = {
+            'idx': f"{idx}-{i}",
+            'ground_truth_path': ground_truth_path,
+            'code': x,
+            'ground_truth_code': item["code"],
+            'generated_image_path': generated_image_path
+        }
+
+    with open(os.path.join(output_path, "code.jsonl"), 'a') as f: f.write(json.dumps(result) + '\n')
+    with open(os.path.join(output_path, "data", f"{idx}.pkl"), "wb") as f:
+        pickle.dump({"code": code, "ids": ids, "logits": logits}, f)
+    with open(chkpnt_path, "w") as f: f.write(' ')
+
 def main():
     """Generate code using Qwen2.5-VL-3B-Instruct model"""
     parser = argparse.ArgumentParser()
@@ -119,8 +164,8 @@ def main():
     parser.add_argument("--model_name", type=str, default="Qwen/Qwen2.5-VL-3B-Instruct", help="Model name")
     parser.add_argument("--num_samples", type=int, default=16, help="Number of samples to generate")
     parser.add_argument("--temperature", type=float, default=0.7, help="Sampling temperature")
-    parser.add_argument("--save_dir", type=str, default="", help="Path to save results")
-    
+    parser.add_argument("--save_dir", type=str, default="out/", help="Path to save results")
+
     args = parser.parse_args()
 
     # Configuration
@@ -130,71 +175,21 @@ def main():
     # Load model and processor
     model, processor = load_model_and_processor(model_name)
 
-    dataset = load_dataset("TencentARC/Plot2Code", split="test")
-    dataset = dataset.filter(lambda x: "matplotlib" in x["url"])
-    if num_examples is not None:
-        dataset = dataset.select(range(num_examples))
-
+    dataset = prepare_data("TencentARC/Plot2Code", args.num_examples,
+                           lambda x: "matplotlib" in x["url"], split="test")
 
     # Get save path
-    save_path = get_save_path(model_name)
-    save_path = os.path.join(args.save_dir, save_path)
+    save_path = get_save_path(args.save_dir, model_name)
     print(f"Results will be saved to {save_path}")
 
-    os.makedirs("data/images", exist_ok=True)
-
-    results_save_path = os.path.join(save_path, "generated_code.jsonl")
-    os.makedirs(os.path.dirname(results_save_path), exist_ok=True)
-
     # Generate code for each sample
-    objects_to_save = {"code": [], "ids": [], "logits": []}
-    idx = 0
-    for item in tqdm(dataset, desc="Generating code"):
-
-        if "matplotlib" not in item['url']:
-            continue
-
-        image = item['image']
-        instruction = item['instruction']
-
+    for idx, item in enumerate(tqdm.tqdm(dataset, desc="Generating code")):
         # save image to data path
         image_path = os.path.join("data", "images", f"{idx}.png")
-        image.save(image_path)
-
-        # Generate code
-        generated_code, gen_ids, logits = generate_code_for_image(model, processor, image_path,
-                                                                  instruction, args.num_samples,
-                                                                  args.temperature)
-        objects_to_save["code"].append(generated_code)
-        objects_to_save["ids"].append(gen_ids)
-        objects_to_save["logits"].append(logits)
-        for i, x in enumerate(generated_code):
-
-            generated_image_path = os.path.join(save_path, f"{idx}-{i}.png")
-            # Create result item
-            result = {
-                'idx': f"{idx}-{i}",
-                'ground_truth_path': image_path,
-                'code': x,
-                'ground_truth_code': item['code'],
-                'generated_image_path': generated_image_path
-            }
-
-            # Save incrementally
-            with open(results_save_path, 'a') as f: f.write(json.dumps(result) + '\n')
-            gc.collect()
-            torch.cuda.empty_cache()
-
-        idx += 1
-
-    
-    model_name = model_name.split("/")[-1]
-    save_path = os.path.join(args.save_dir, "generated_results", model_name, "outputs")
-    os.makedirs(save_path, exist_ok=True)
-    objects_save_path = os.path.join(save_path, "objects.pkl")
-    
-    print(f"Results saved to {args.save_dir}")
-    with open(os.path.join(objects_save_path), "wb") as f: pickle.dump(objects_to_save, f)
+        item["image"].save(image_path)
+        # Generate
+        generate_and_execute(idx, item, model, processor, image_path, save_path,
+                             temperature=args.temperature, num_return_sequences=args.num_samples)
 
 if __name__ == "__main__":
     main()

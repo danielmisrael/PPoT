@@ -12,7 +12,7 @@ def no_file_operations(*args, **kwargs):
         def __enter__(self): return self
         def __exit__(self, *args): pass
         def flush(self): pass
-    
+
     return DummyFile()
 
 def execute_and_return_figure(code_string, queue):
@@ -23,24 +23,24 @@ def execute_and_return_figure(code_string, queue):
     try:
         # We need a non-interactive backend for this to work reliably
         # when not running in a main thread.
-        plt.switch_backend('Agg') 
-        
+        plt.switch_backend('Agg')
+
         # Override file operations
         restricted_globals = globals().copy()
         restricted_globals.update({
             'open': no_file_operations,
         })
-        
+
         # Override builtins that could do file operations
         restricted_builtins = __builtins__.copy() if isinstance(__builtins__, dict) else __builtins__.__dict__.copy()
         restricted_builtins.update({
             'open': no_file_operations,
         })
         restricted_globals['__builtins__'] = restricted_builtins
-        
+
         # A dictionary to hold the local variables from exec
         local_scope = {}
-        
+
         exec(code_string, restricted_globals, local_scope)
 
         # Get the figure object created by the code
@@ -71,20 +71,20 @@ def safe_execute_plot(code_to_run, timeout_seconds=30):
     )
     process.start()
     process.join(timeout=timeout_seconds)
-    
+
     # Check if we have a result first, even if process appears alive
     try:
         result = return_queue.get(timeout=1)
-        
+
         if isinstance(result, bytes):
             figure = dill.loads(result)
             return True, figure
         elif isinstance(result, Exception):
             return False, str(result)
-            
+
     except:
         pass
-    
+
     # Clean up process if still running
     if process.is_alive():
         process.terminate()
@@ -92,4 +92,4 @@ def safe_execute_plot(code_to_run, timeout_seconds=30):
         return False, "Process timed out."
 
     return False, "Process completed but no result available."
-    
+

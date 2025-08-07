@@ -8,8 +8,8 @@ def extract_code(response_str):
         return "\n".join(match.strip() for match in matches)
     else:
         return response_str
-    
-    
+
+
 # TODO we should agree on the formatting of the probabilities dictionary.
 
 def compile_probcode(code, probabilities):
@@ -19,29 +19,30 @@ def compile_probcode(code, probabilities):
         probabilities: dict[str, float] Maps strings contained within code (constants or variables) to their probabilities
     Returns:
         probabilistic_code: str Still a string, but includes source of randomness and incorporates probabilities.
-    
+
     '''
     # TODO @Poorva
     pass
 
 
-def get_probs(token_ids, logits):
+def get_probs(token_ids: torch.LongTensor, pos: list, logits: torch.FloatTensor) -> list:
     '''
     Inputs:
-        token_ids: list[int]
-        logits: torch.Tensor of shape (batch_size, sequence_length, vocab_size)
+        token_ids: torch.LongTensor of shape (batch_size, sequence_length)
+        pos: list of torch.LongTensor containing the position of all random variable tokens
+        logits: torch.FloatTensor of shape (batch_size, sequence_length, vocab_size)
     Returns:
         probabilities: dict[str, float] Maps strings contained within code (constants or variables) to their probabilities
     '''
     # TODO @Renato
     pass
 
-    
+
 # Sketch of what the generation loop will look like
-def genenerate_probcode(model, tokenizer, input_ids, **gen_kwargs):
+def generate_probcode(model, tokenizer, input_ids, **gen_kwargs):
     with torch.no_grad():
         generated_ids = model.generate(
-            input_ids, 
+            input_ids,
             **gen_kwargs,
         )
     generated_ids_trimmed = [
@@ -52,25 +53,17 @@ def genenerate_probcode(model, tokenizer, input_ids, **gen_kwargs):
     )
 
     code = extract_code(output_text[0])
-    
+
     code_ids = tokenizer.encode(code)
-        
+
     with torch.no_grad():
         logits = model(generated_ids).logits
-        
-        
+
     code_logits = logits[:, -len(code_ids):, :]
-    
+
     probabilities = get_probs(code_ids, code_logits)
-    
+
     probabilistic_code = compile_probcode(code, probabilities)
-    
+
     return probabilistic_code
-        
-        
 
-
-
-
-        
-        

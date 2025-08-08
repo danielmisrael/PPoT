@@ -7,11 +7,11 @@ import datasets, tqdm
 import utils
 
 def prepare_data(dataset_name: str, num_examples: int, filter_fn = None, **kwargs) -> datasets.Dataset:
-    D = datasets.load_dataset(dataset_name, **kwargs)
-    if filter_fn is not None: D = D.filter(filter_fn)
-    if num_examples is not None: D = D.select(range(num_examples))
+    data = datasets.load_dataset(dataset_name, **kwargs)
+    if filter_fn is not None: data = data.filter(filter_fn)
+    if num_examples is not None: data = data.select(range(num_examples))
     os.makedirs("data/images", exist_ok=True)
-    return D
+    return data
 
 def encode_image_to_base64(image_path: str) -> str:
     """Encode image to base64 string"""
@@ -37,12 +37,12 @@ def load_model_and_processor(model_name: str = "Qwen/Qwen2.5-VL-3B-Instruct"):
 
 def extract_code(responses: list) -> list:
     """Extract code from response string"""
-    R = []
+    code_responses = []
     for response_str in responses:
         matches = re.findall(r'```python(.*?)```', response_str, re.DOTALL)
-        if matches: R.append("\n".join(match.strip() for match in matches))
-        else: R.append(response_str)
-    return R
+        if matches: code_responses.append("\n".join(match.strip() for match in matches))
+        else: code_responses.append(response_str)
+    return code_responses
 
 def read_jsonl_file(file_path: str) -> str:
     """Read JSONL file"""
@@ -101,9 +101,7 @@ def generate_code_for_image(model: transformers.AutoModelForCausalLM, processor:
             do_sample=True,
             top_p=1.0,
             top_k=0,
-            #temperature=temperature,
             max_new_tokens=2048,
-            #num_return_sequences=nsamples,
             return_dict_in_generate=True,
             output_logits=True,
             **kwargs
@@ -119,7 +117,7 @@ def generate_code_for_image(model: transformers.AutoModelForCausalLM, processor:
 
     return code, generated_ids_trimmed, logits
 
-def generate_and_execute(idx: int, item: dict, model: transformers.AutoModel,
+def generate_code(idx: int, item: dict, model: transformers.AutoModel,
                          processor: transformers.AutoProcessor, ground_truth_path: str,
                          output_path: str, **kwargs):
     chkpnt_path = os.path.join(output_path, "ckpt", f"{idx}")
@@ -128,20 +126,6 @@ def generate_and_execute(idx: int, item: dict, model: transformers.AutoModel,
                                                 item["instruction"], **kwargs)
     for i, x in enumerate(code):
         generated_image_path = os.path.join(output_path, "imgs", f"{idx}-{i}.png")
-        try:
-            exec(x)
-        except Exception as e:
-            print(f"Error executing code: {e}")
-        fig = plt.gcf()
-        try:
-            fig.savefig(generated_image_path)
-        except Exception as e:
-            print(f"Savefig error: {e}")
-        plt.close()
-        matplotlib.rcdefaults()
-        plt.cla()
-        plt.clf()
-        plt.close("all")
 
         # Create result item
         result = {
@@ -188,7 +172,7 @@ def main():
         image_path = os.path.join("data", "images", f"{idx}.png")
         item["image"].save(image_path)
         # Generate
-        generate_and_execute(idx, item, model, processor, image_path, save_path,
+        generate_code(idx, item, model, processor, image_path, save_path,
                              temperature=args.temperature, num_return_sequences=args.num_samples)
 
 if __name__ == "__main__":

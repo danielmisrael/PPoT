@@ -49,10 +49,10 @@ def read_jsonl_file(file_path: str) -> str:
     with open(file_path, 'r') as json_file:
         return [json.loads(line) for line in json_file]
 
-def get_save_path(out_path: str, model_name: str) -> str:
+def get_save_path(out_path: str, model_name: str, append: str = None) -> str:
     """Get save path for generated code"""
     model_name = model_name.split("/")[-1]
-    save_path = os.path.join(out_path, model_name)
+    save_path = os.path.join(out_path, model_name if append is None else f"{model_name}_{append}")
     os.makedirs(save_path, exist_ok=True)
     os.makedirs(os.path.join(save_path, "imgs"), exist_ok=True)
     os.makedirs(os.path.join(save_path, "data"), exist_ok=True)
@@ -108,16 +108,16 @@ def generate_code_for_image(model: transformers.AutoModelForCausalLM, processor:
             output_logits=True,
             **kwargs
         )
-        generated_ids = out.sequences.cpu()
-        generated_ids_trimmed = [out_ids[inputs.input_ids.numel():] for out_ids in generated_ids]
+        generated_ids_trimmed = out.sequences[:,inputs.input_ids.numel():].cpu()
         output_text = processor.batch_decode(
             generated_ids_trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False
         )
 
     # Extract code
     code = extract_code(output_text)
+    logits = torch.concatenate(tuple(x.cpu() for x in out.logits), dim=-1).reshape(out.logits[0].shape[0], len(out.logits), -1)
 
-    return code, generated_ids_trimmed, tuple(x.cpu() for x in out.logits)
+    return code, generated_ids_trimmed, logits
 
 def generate_and_execute(idx: int, item: dict, model: transformers.AutoModel,
                          processor: transformers.AutoProcessor, ground_truth_path: str,
@@ -179,7 +179,7 @@ def main():
                            lambda x: "matplotlib" in x["url"], split="test")
 
     # Get save path
-    save_path = get_save_path(args.save_dir, model_name)
+    save_path = get_save_path(args.save_dir, model_name, append=f"t{args.temperature}")
     print(f"Results will be saved to {save_path}")
 
     # Generate code for each sample

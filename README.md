@@ -43,6 +43,9 @@ Evaluate the generated code against ground truth:
 CUDA_VISIBLE_DEVICES=x python text_match_score.py --model_name "Qwen2.5-VL-3B-Instruct" --prompt_strategy instruct
 ```
 
+If you passed in the `save_dir` option for generate_code script, use the same option for evaluation as well.
+
+
 This command will:
 - Compare generated code with ground truth code
 - Calculate text match scores

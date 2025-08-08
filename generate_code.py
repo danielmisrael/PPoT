@@ -121,7 +121,7 @@ def generate_code(idx: int, item: dict, model: transformers.AutoModel,
                          processor: transformers.AutoProcessor, ground_truth_path: str,
                          output_path: str, **kwargs):
     chkpnt_path = os.path.join(output_path, "ckpt", f"{idx}")
-    if os.path.isfile(chkpnt_path): return
+    # if os.path.isfile(chkpnt_path): return
     code, ids, logits = generate_code_for_image(model, processor, ground_truth_path,
                                                 item["instruction"], **kwargs)
     for i, x in enumerate(code):
@@ -136,7 +136,7 @@ def generate_code(idx: int, item: dict, model: transformers.AutoModel,
             'generated_image_path': generated_image_path
         }
 
-    with open(os.path.join(output_path, "code.jsonl"), 'a') as f: f.write(json.dumps(result) + '\n')
+    with open(os.path.join(output_path, "direct/instruct/generated_code.jsonl"), 'a') as f: f.write(json.dumps(result) + '\n')
     with open(os.path.join(output_path, "data", f"{idx}.pkl"), "wb") as f:
         pickle.dump({"code": code, "ids": ids, "logits": logits}, f)
     with open(chkpnt_path, "w") as f: f.write(' ')
@@ -159,7 +159,7 @@ def main():
     # Load model and processor
     model, processor = load_model_and_processor(model_name)
 
-    dataset = prepare_data("TencentARC/Plot2Code", args.num_examples,
+    dataset = prepare_data("TencentARC/Plot2Code", num_examples,
                            lambda x: "matplotlib" in x["url"], split="test")
 
     # Get save path

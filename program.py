@@ -1,29 +1,63 @@
-import torch.distributions.gumbel
+import random
+import torch.distributions.gumbel, transformers
 
 class Program:
     "A probabilistic program."
 
-    def __init__(self, C: str, X: list, P: list):
-        """Constructs a probabilistic program where
+    def __init__(self, C: str, X: list, P: list, V: list, tokenizer: transformers.AutoTokenizer):
+        """Constructs a probabilistic program.
 
         Arguments:
             C: is a formatted string containing variables to be replaced, e.g. "a = {x}", where x
                 is the random variable id as an integer.
             X: list of random variable names that map to both P (by name) and pr (by index).
-            P: list of torch.FloatTensor encoding the probability distribution of the i-th RV in X.
+            P: list of torch.FloatTensor encoding the (log-)probability distribution of the i-th RV in X.
+            V: list of torch.LongTensor with the ids in the support of each random variable.
+            tokenizer: the model's transformers.AutoTokenizer.
         """
         assert len(X) > 0, "This is a deterministic program!"
         assert len(X) == len(P), "Number of variables must match number of sets of values."
+        assert len(X) == len(V), "Number of variables must match number of sets of values."
         self.code = C
         self.mapping = {x: p for x, p in zip(X, P)}
         self.G = torch.distributions.gumbel.Gumbel(0, 1)
-        self.homogenous = all(x.shape == X[0].shape for x in X)
-        self.P_tensor = self.vstack(X) if self.homogenous else None
+        self.tokenizer = tokenizer
+        self.supp = V
+        if torch.is_tensor(P): self.homogenous, self.P_tensor = True, P
+        elif all(x.shape == P[0].shape for x in P): self.homogenous, self.P_tensor = True, torch.vstack(P)
+        else: self.homogenous, self.P_tensor = False, None
 
-    def sample(self) -> str:
+    def sample_program(self) -> str:
         "Returns a deterministic program sampled from this probabilistic program."
         # Sample values.
-        V = [x.item() for x in torch.argmax(self.P_tensor + self.G(self.P_tensor.shape), dim=-1)] \
-            if self.homogenous else [torch.argmax(p + self.G(p.shape)).item() for p in self.mapping.values()]
+        if self.homogenous:
+            S = torch.argmax(self.P_tensor+self.G.sample(self.P_tensor.shape), dim=-1)
+        else:
+            S = (torch.argmax(p+self.G.sample(p.shape)).item() for p in self.mapping.values())
+        V = [self.supp[i][x.item()] for i, x in enumerate(S)]
         # Output code.
-        return self.code.format(*V)
+        return self.code.format(*self.tokenizer.batch_decode(V))
+
+    def sample(self, n: int = 1) -> list:
+        "Returns n deterministic programs sampled from this probabilistic program."
+        return [self.sample_program() for _ in range(n)]
+
+class USPP(Program):
+    "Union of Singleton Probabilistic Programs."
+
+    def __init__(self, V_default: list, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.V_default = V_default
+
+    def sample_program(self) -> str:
+        "Returns a deterministic program sampled from this probabilistic program."
+        # Assume a uniform prior.
+        X = random.randint(0, len(self.mapping)-1)
+        # Sample only X.
+        pr = self.P_tensor[X] if self.homogenous else self.mapping[X]
+        x = torch.argmax(pr + self.G.sample(pr.shape))
+        # Fix other values and insert x.
+        V = self.V_default.copy()
+        V[X] = self.supp[X][x]
+        # Output code.
+        return self.code.format(*self.tokenizer.batch_decode(V))

@@ -98,7 +98,6 @@ def generate_code_for_image(model: transformers.AutoModelForCausalLM, processor:
     with torch.no_grad():
         out = model.generate(
             **inputs,
-            do_sample=True,
             top_p=1.0,
             top_k=0,
             max_new_tokens=2048,
@@ -173,7 +172,9 @@ def main():
         item["image"].save(image_path)
         # Generate
         generate_code(idx, item, model, processor, image_path, save_path,
-                             temperature=args.temperature, num_return_sequences=args.num_samples)
+                      temperature=1.0 if args.temperature == 0 else args.temperature,
+                      num_return_sequences=1 if args.temperature == 0 else args.num_samples,
+                      do_sample=args.temperature > 0)
 
 if __name__ == "__main__":
     main()

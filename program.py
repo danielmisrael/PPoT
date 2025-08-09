@@ -40,7 +40,7 @@ class Program:
 
     def sample(self, n: int = 1) -> list:
         "Returns n deterministic programs sampled from this probabilistic program."
-        return [self.sample_program() for _ in range(n)]
+        return self.sample_program() if n == 1 else [self.sample_program() for _ in range(n)]
 
 class USPP(Program):
     "Union of Singleton Probabilistic Programs."

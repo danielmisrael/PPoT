@@ -70,7 +70,7 @@ def get_probs(token_ids: torch.LongTensor, pos: list, logits: torch.FloatTensor,
 
     Inputs:
         token_ids: torch.LongTensor of shape (batch_size, sequence_length)
-        pos: list of lists containing the position of all random variable tokens
+        pos: list of np.ndarray containing the position of all random variable tokens
         logits: torch.FloatTensor of shape (batch_size, sequence_length, vocab_size)
         processor: the model's transformers.AutoProcessor
     Optional inputs:
@@ -105,7 +105,7 @@ def get_probs(token_ids: torch.LongTensor, pos: list, logits: torch.FloatTensor,
         # Prepare random variable names as a list.
         X = list(range(len(P)))
         # Prepare logits as a list of tensors.
-        L_supp = [torch.log_softmax(L[i,p.item(),x], dim=-1) for p, x in zip(P, supp[i])]
+        L_supp = [torch.log_softmax(L[i,p,x], dim=-1) for p, x in zip(P, supp[i])]
         if only_one:
             # Default values for RVs.
             V_default = [x.item() for x in token_ids[i,P]]

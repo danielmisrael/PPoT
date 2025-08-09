@@ -1,10 +1,10 @@
-import re
-import torch, transformers
+import regex
+import torch, transformers, numpy as np
 import program, utils
 
 def extract_code(response_str):
     """Extract code from response string"""
-    matches = re.findall(r'```python(.*?)```', response_str, re.DOTALL)
+    matches = regex.findall(r'```python(.*?)```', response_str, regex.DOTALL)
     if matches:
         return "\n".join(match.strip() for match in matches)
     else:
@@ -25,42 +25,49 @@ def compile_probcode(code, probabilities):
     # TODO @Poorva
     pass
 
-def get_tokens_pos(program: str, tokenizer):
-    '''
-    Take as input tokenization of a string and output what tokens need to be randomized
+def get_token_pos(token_ids: torch.LongTensor, processor: transformers.AutoProcessor,
+                  rule: str = r'(?<![a-zA-Z_][0-9]*)([0-9])') -> list:
+    """
+    Get the position of the random variables from the generated programs.
+
     Inputs:
-        tokens_list: [1, 2, 3, 4]
-        tokenizer: output me the string for each token
-        
-        
-    '''
-    indices = []
-    count = 0
+        token_ids: torch.LongTensor of shape (batch_size, sequence_length)
+        processor: the model's transformers.AutoProcessor
+    Optional inputs:
+        rule: regex rule to identify random variables
+    Returns:
+        A list of lists containing the position of all random variable tokens
 
-    split_program = re.split(r'[-+]?[0-9]+', program)
-    full_tokenizer = tokenizer(program).input_ids
-    split_tokenizer = tokenizer(split_program).input_ids
+    To verify the algorithm's correctness, you can run the following:
 
-    for i in range(len(split_tokenizer)):
-        if split_tokenizer[i] != []:
-            while split_tokenizer[i][0] != full_tokenizer[count]:
-                token_before = tokenizer.decode(full_tokenizer[count-1])
-                if (not token_before.isalpha()) and (token_before != "_"): 
-                    indices.append(count)
-                    count += 1
-        else:
-            token_before = tokenizer.decode(full_tokenizer[count-1])
-            if (not token_before.isalpha()) and (token_before != "_"): 
-                while count < len(full_tokenizer) and (count != 0):
-                    indices.append(count)
-                    count += 1
-        count += len(split_tokenizer[i])
-    return indices
+    > toks = [[X[u] for u in j] for X, j in zip(S, J)]
+    > ground_truth = [r.findall(''.join(x)) for x in S]
+    > assert toks == ground_truth
+    > selected_ids = [I[i,j] for i, j in enumerate(J)]
+    > assert tokenizer.batch_decode(selected_ids) == [''.join(x) for x in ground_truth]
+    """
+    # Tokens as strings (here we don't ignore special tokens, which might matter in the future).
+    S = [processor.tokenizer.batch_decode(x) for x in token_ids]
+    # Length of tokens.
+    L = np.array([list(map(len, x)) for x in S])
+    # Cumulative sums of lengths, which give the (end) position of the token.
+    cL = np.cumsum(L, axis=-1)
+    # Compile the regex according to rule. The default rule captures single digits that are not
+    # preceded by an alphabetic character or underline. It requires variable width look-behind,
+    # which is not supported by the standard re library; instead, we use regex.
+    r = regex.compile(rule)
+    # Get the (end) position of all regex matches.
+    M = [np.array([y.end() for y in r.finditer(''.join(x))]) for x in S]
+    # Bisect on cL to find their tokenization position in logarithmic time.
+    J = [np.searchsorted(x, y) for x, y in zip(cL, M)]
+    return J
 
 
 def get_probs(token_ids: torch.LongTensor, pos: list, logits: torch.FloatTensor,
               processor: transformers.AutoProcessor, supp: list = None, only_one: bool = False) -> tuple:
-    '''
+    """
+    Get probabilistic programs from the generated programs.
+
     Inputs:
         token_ids: torch.LongTensor of shape (batch_size, sequence_length)
         pos: list of lists containing the position of all random variable tokens
@@ -75,7 +82,8 @@ def get_probs(token_ids: torch.LongTensor, pos: list, logits: torch.FloatTensor,
     Returns:
         A list of probabilistic programs of type program.Program
         The normalized loglikelihood of each program
-    '''
+    """
+    # Support preprocessing.
     if supp is None:
         S = processor.tokenizer([str(i) for i in range(10)], return_tensors="pt").input_ids.flatten()
         supp = [[S for _ in pos[i]] for i in range(token_ids.shape[0])]

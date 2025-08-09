@@ -93,3 +93,10 @@ def safe_execute_plot(code_to_run, timeout_seconds=30):
 
     return False, "Process completed but no result available."
 
+def remove_code_affixes(s: str) -> str:
+    s = s.strip()
+    if s.startswith(remove_code_affixes.PYTHON_PREFIX):
+        return s[len(remove_code_affixes.PYTHON_PREFIX):].removesuffix(remove_code_affixes.CODE_AFFIX)
+    return s.removeprefix(remove_code_affixes.CODE_AFFIX).removesuffix(remove_code_affixes.CODE_AFFIX)
+remove_code_affixes.PYTHON_PREFIX = "```python"
+remove_code_affixes.CODE_AFFIX = "```"

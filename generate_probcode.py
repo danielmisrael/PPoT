@@ -25,6 +25,38 @@ def compile_probcode(code, probabilities):
     # TODO @Poorva
     pass
 
+def get_tokens_pos(program: str, tokenizer):
+    '''
+    Take as input tokenization of a string and output what tokens need to be randomized
+    Inputs:
+        tokens_list: [1, 2, 3, 4]
+        tokenizer: output me the string for each token
+        
+        
+    '''
+    indices = []
+    count = 0
+
+    split_program = re.split(r'[-+]?[0-9]+', program)
+    full_tokenizer = tokenizer(program).input_ids
+    split_tokenizer = tokenizer(split_program).input_ids
+
+    for i in range(len(split_tokenizer)):
+        if split_tokenizer[i] != []:
+            while split_tokenizer[i][0] != full_tokenizer[count]:
+                token_before = tokenizer.decode(full_tokenizer[count-1])
+                if (not token_before.isalpha()) and (token_before != "_"): 
+                    indices.append(count)
+                    count += 1
+        else:
+            token_before = tokenizer.decode(full_tokenizer[count-1])
+            if (not token_before.isalpha()) and (token_before != "_"): 
+                while count < len(full_tokenizer) and (count != 0):
+                    indices.append(count)
+                    count += 1
+        count += len(split_tokenizer[i])
+    return indices
+
 
 def get_probs(token_ids: torch.LongTensor, pos: list, logits: torch.FloatTensor,
               processor: transformers.AutoProcessor) -> tuple:

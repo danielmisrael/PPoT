@@ -4,7 +4,7 @@ from transformers import Qwen2_5_VLForConditionalGeneration, AutoTokenizer, Auto
 from qwen_vl_utils import process_vision_info
 import torch, matplotlib.pyplot as plt, shutil, argparse, matplotlib, transformers, numpy as np
 import datasets, tqdm
-import utils
+import ppot.utils as utils
 
 def prepare_data(dataset_name: str, num_examples: int, filter_fn = None, **kwargs) -> datasets.Dataset:
     data = datasets.load_dataset(dataset_name, **kwargs)

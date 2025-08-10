@@ -1,7 +1,5 @@
-import multiprocessing
-import dill
-import matplotlib.pyplot as plt
-
+import multiprocessing, regex
+import dill, matplotlib.pyplot as plt
 
 def no_file_operations(*args, **kwargs):
     """Silently ignore file operations by returning a dummy file-like object"""
@@ -100,3 +98,11 @@ def remove_code_affixes(s: str) -> str:
     return s.removeprefix(remove_code_affixes.CODE_AFFIX).removesuffix(remove_code_affixes.CODE_AFFIX)
 remove_code_affixes.PYTHON_PREFIX = "```python"
 remove_code_affixes.CODE_AFFIX = "```"
+
+def extract_code(response_str):
+    """Extract code from response string"""
+    matches = regex.findall(r'```python(.*?)```', response_str, regex.DOTALL)
+    if matches:
+        return "\n".join(match.strip() for match in matches)
+    else:
+        return response_str

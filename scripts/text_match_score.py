@@ -8,7 +8,7 @@ import numpy as np
 import Levenshtein
 from Plot2Code.plot2code.utils import get_parser, get_save_path, get_eval_path, read_jsonl_file
 from matplotlib.pyplot import *
-from utils import safe_execute_plot
+from ppot.utils import safe_execute_plot
 
 def position_similarity(pos1, pos2, size_ratio):
     pos2_adjusted = pos2 * size_ratio

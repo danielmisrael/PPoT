@@ -9,6 +9,7 @@ import Levenshtein
 from Plot2Code.plot2code.utils import get_parser, get_save_path, get_eval_path, read_jsonl_file
 from matplotlib.pyplot import *
 from ppot.utils import safe_execute_plot
+import io
 
 def position_similarity(pos1, pos2, size_ratio):
     pos2_adjusted = pos2 * size_ratio
@@ -72,6 +73,65 @@ def match_texts(texts1, texts2, positions1, positions2, size_ratio):
         return 1
     match_score = matched / total_pairs
     return match_score
+
+def evaluate_single_example(generated_code:str, ground_truth_code: str) -> float:
+    """
+    Evaluates a single program for a single image
+    """
+            
+    success, result = safe_execute_plot(generated_code, timeout_seconds=10)
+            
+    img_np = None
+    if success:
+        fig2 = result
+        buf = io.BytesIO()
+        fig2.savefig(buf, format='png')
+        buf.seek(0)  # Rewind the buffer to the beginning
+        img = Image.open(buf)  # Open the buffer content as a PIL Image
+        plt.close()
+        matplotlib.rcdefaults()
+        plt.cla()
+        plt.clf()
+        plt.close("all")
+        img_np = np.array(img)
+          # Save the figure to the in-memory buffer as a PNG
+
+    all_white = np.all(img_np == 255)
+
+    if all_white or not success:
+        return 0.0
+    # breakpoint()
+    success, result = safe_execute_plot(ground_truth_code)
+    if success:
+        fig1 = result
+    else:
+        return 0
+    plt.close()
+    matplotlib.rcdefaults()
+    plt.cla()
+    plt.clf()
+    plt.close("all")
+
+    # Extract texts and positions from the figures
+    texts1, positions1 = extract_texts(fig1)
+    texts2, positions2 = extract_texts(fig2)
+    # Calculate the size ratio
+    fig1_size = np.array(fig1.get_size_inches())
+    fig2_size = np.array(fig2.get_size_inches())
+    size_ratio = fig1_size / fig2_size
+
+    # Calculate the match score
+    match_score = match_texts(texts1, texts2, positions1, positions2, size_ratio)
+    return match_score
+
+    # # Append the generated image path, ground truth code and match score to the JSONL file
+    # result = {'ground_truth_path': ground_truth_path, 'test_image_path': test_image_path, 'text_match_score': match_score}
+    # all_results.append(result)
+    # jsonl_file.write(json.dumps(result) + "\n")
+    # jsonl_file.flush()
+
+
+
 
 if __name__ == "__main__":
     

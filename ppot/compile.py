@@ -80,7 +80,10 @@ def programs(token_ids: torch.LongTensor, logits: torch.FloatTensor,
     for i, (T, P) in enumerate(zip(token_ids, pos)):
         # Prepare code as a formatted string.
         tokens = processor.batch_decode(T, skip_special_tokens=True)
-        for j, p in enumerate(P): tokens[p] = f"{{{j}}}" # turn it into an RV
+        for j, t in enumerate(tokens):
+            tokens[j] = t.replace("{", "{{").replace("}", "}}")
+        for j, p in enumerate(P): 
+            tokens[p] = f"{{{j}}}" # turn it into an RV
         C = ppot.utils.remove_code_affixes(''.join(tokens))
         # Prepare random variable names as a list.
         X = list(range(len(P)))

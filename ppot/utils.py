@@ -1,5 +1,6 @@
 import multiprocessing, regex
 import dill, matplotlib.pyplot as plt
+import numpy as np
 
 def no_file_operations(*args, **kwargs):
     """Silently ignore file operations by returning a dummy file-like object"""

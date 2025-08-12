@@ -15,10 +15,14 @@ class Program:
             V: list of torch.LongTensor with the ids in the support of each random variable.
             tokenizer: the model's transformers.AutoTokenizer.
         """
-        assert len(X) > 0, "This is a deterministic program!"
+        # assert len(X) > 0, "This is a deterministic program!" 
         assert len(X) == len(P), "Number of variables must match number of sets of values."
         assert len(X) == len(V), "Number of variables must match number of sets of values."
         self.code = C
+        self.deterministic = False # This is true if the code has no random variable
+        if len(X) == 0:
+            self.deterministic = True
+            return
         self.mapping = {x: p for x, p in zip(X, P)}
         self.G = torch.distributions.gumbel.Gumbel(0, 1)
         self.tokenizer = tokenizer
@@ -40,7 +44,20 @@ class Program:
 
     def sample(self, n: int = 1) -> list:
         "Returns n deterministic programs sampled from this probabilistic program."
+        if self.deterministic:
+            return self.code
         return self.sample_program() if n == 1 else [self.sample_program() for _ in range(n)]
+    
+    def greedy(self) -> str:
+        "Returns the deterministic program output from the model"
+        if self.deterministic:
+            return self.code
+        if self.homogenous: # all random variables have size 10
+            S = torch.argmax(self.P_tensor, dim=-1)
+        else:
+            S = (torch.argmax(p).item() for p in self.mapping.values())
+        V = [self.supp[i][x.item()] for i, x in enumerate(S)]
+        return self.code.format(*self.tokenizer.batch_decode(V))
 
 class USPP(Program):
     "Union of Singleton Probabilistic Programs."

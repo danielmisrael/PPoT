@@ -121,6 +121,7 @@ def generate_code(idx: int, item: dict, model: transformers.AutoModel,
                          output_path: str, **kwargs):
     chkpnt_path = os.path.join(output_path, "ckpt", f"{idx}")
     # if os.path.isfile(chkpnt_path): return
+    print(ground_truth_path)
     code, ids, logits = generate_code_for_image(model, processor, ground_truth_path,
                                                 item["instruction"], **kwargs)
     for i, x in enumerate(code):

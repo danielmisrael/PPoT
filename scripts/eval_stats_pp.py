@@ -1,14 +1,6 @@
 import pickle, argparse
 import torch, prettytable, tqdm, numpy as np
-
-def retrieve_programs(path: str, n: int) -> tuple:
-    "Retrieves probabilistic programs and normalized log-likelihoods from disk."
-    with open(path, "rb") as f:
-        R = pickle.load(f)
-        if isinstance(R, tuple): return R
-        PP, LL = R, pickle.load(f)
-    if n is not None: return [P[:n] for P in PP], [L[:n] for L in LL]
-    return PP, LL
+import ppot.utils
 
 def foreach(X: list, f) -> list:
     return [[f(y.numpy() if torch.is_tensor(y) else y) for y in x] for x in tqdm.tqdm(X)]
@@ -61,7 +53,7 @@ if __name__ == "__main__":
     parser.add_argument("--num-programs", type=int, default=None)
     args = parser.parse_args()
 
-    PP, LL = retrieve_programs(args.path_to_programs, args.num_programs)
+    PP, LL = ppot.utils.retrieve_programs(args.path_to_programs, args.num_programs)
     D = stats(PP, LL, args.num_samples)
     T = print_table(D)
     print(T)

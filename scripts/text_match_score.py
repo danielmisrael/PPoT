@@ -78,9 +78,9 @@ def evaluate_single_example(generated_code:str, ground_truth_code: str) -> float
     """
     Evaluates a single program for a single image
     """
-            
+
     success, result = safe_execute_plot(generated_code, timeout_seconds=10)
-            
+
     img_np = None
     if success:
         fig2 = result
@@ -134,7 +134,7 @@ def evaluate_single_example(generated_code:str, ground_truth_code: str) -> float
 
 
 if __name__ == "__main__":
-    
+
     parser = get_parser()
     args = parser.parse_args()
 
@@ -156,9 +156,9 @@ if __name__ == "__main__":
             test_image_path = item['generated_image_path']
             code = item['code']
             ground_truth_code = item['ground_truth_code']
-            
+
             success, result = safe_execute_plot(code, timeout_seconds=10)
-            
+
             img_np = None
             if success:
                 fig2 = result
@@ -171,9 +171,9 @@ if __name__ == "__main__":
                 plt.close("all")
                 img = Image.open(test_image_path)
                 img_np = np.array(img)
-            
+
             all_white = np.all(img_np == 255)
-        
+
             if img_np is None or all_white:
                 result = {'ground_truth_path': ground_truth_path, 'test_image_path': test_image_path, 'text_match_score': 0.0}
                 all_results.append(result)

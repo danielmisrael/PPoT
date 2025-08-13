@@ -1,4 +1,4 @@
-import multiprocessing, regex, os
+import multiprocessing, regex, os, pickle
 import dill, matplotlib.pyplot as plt, datasets
 import numpy as np
 
@@ -115,3 +115,11 @@ def prepare_data(dataset_name: str, num_examples: int, filter_fn = None, **kwarg
     os.makedirs("data/images", exist_ok=True)
     return data
 
+def retrieve_programs(path: str, n: int) -> tuple:
+    "Retrieves probabilistic programs and normalized log-likelihoods from disk."
+    with open(path, "rb") as f:
+        R = pickle.load(f)
+        if isinstance(R, tuple): return R
+        PP, LL = R, pickle.load(f)
+    if n is not None: return [P[:n] for P in PP], [L[:n] for L in LL]
+    return PP, LL

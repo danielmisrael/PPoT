@@ -6,13 +6,6 @@ import torch, matplotlib.pyplot as plt, shutil, argparse, matplotlib, transforme
 import datasets, tqdm
 import ppot.utils as utils
 
-def prepare_data(dataset_name: str, num_examples: int, filter_fn = None, **kwargs) -> datasets.Dataset:
-    data = datasets.load_dataset(dataset_name, **kwargs)
-    if filter_fn is not None: data = data.filter(filter_fn)
-    if num_examples is not None: data = data.select(range(num_examples))
-    os.makedirs("data/images", exist_ok=True)
-    return data
-
 def encode_image_to_base64(image_path: str) -> str:
     """Encode image to base64 string"""
     with open(image_path, "rb") as image_file:
@@ -159,8 +152,8 @@ def main():
     # Load model and processor
     model, processor = load_model_and_processor(model_name)
 
-    dataset = prepare_data("TencentARC/Plot2Code", num_examples,
-                           lambda x: "matplotlib" in x["url"], split="test")
+    dataset = utils.prepare_data("TencentARC/Plot2Code", num_examples,
+                                 lambda x: "matplotlib" in x["url"], split="test")
 
     # Get save path
     save_path = get_save_path(args.save_dir, model_name, append=f"t{args.temperature}")

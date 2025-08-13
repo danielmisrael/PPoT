@@ -1,5 +1,5 @@
-import multiprocessing, regex
-import dill, matplotlib.pyplot as plt
+import multiprocessing, regex, os
+import dill, matplotlib.pyplot as plt, datasets
 import numpy as np
 
 def no_file_operations(*args, **kwargs):
@@ -107,3 +107,11 @@ def extract_code(response_str):
         return "\n".join(match.strip() for match in matches)
     else:
         return response_str
+
+def prepare_data(dataset_name: str, num_examples: int, filter_fn = None, **kwargs) -> datasets.Dataset:
+    data = datasets.load_dataset(dataset_name, **kwargs)
+    if filter_fn is not None: data = data.filter(filter_fn)
+    if num_examples is not None: data = data.select(range(num_examples))
+    os.makedirs("data/images", exist_ok=True)
+    return data
+

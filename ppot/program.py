@@ -25,7 +25,7 @@ class Program:
         self.tokenizer = tokenizer
         self.supp = V
         if torch.is_tensor(P): self.homogenous, self.P_tensor = True, P
-        elif self.deterministic and all(x.shape == P[0].shape for x in P): self.homogenous, self.P_tensor = True, torch.vstack(P)
+        elif (not self.deterministic) and all(x.shape == P[0].shape for x in P): self.homogenous, self.P_tensor = True, torch.vstack(P)
         else: self.homogenous, self.P_tensor = False, None
 
     def sample_program(self) -> str:
@@ -35,7 +35,7 @@ class Program:
         if self.homogenous:
             S = torch.argmax(self.P_tensor+Program.GUMBEL.sample(self.P_tensor.shape), dim=-1)
         else:
-            S = (torch.argmax(p+Program.GUMBEL.sample(p.shape)).item() for p in self.mapping.values())
+            S = (torch.argmax(p+Program.GUMBEL.sample(p.shape)) for p in self.mapping.values())
         V = [self.supp[i][x.item()] for i, x in enumerate(S)]
         # Output code.
         return self.code.format(*self.tokenizer.batch_decode(V))

@@ -1,6 +1,7 @@
 import multiprocessing, regex, os, pickle
 import dill, matplotlib.pyplot as plt, datasets
 import numpy as np
+from queue import Queue
 
 def no_file_operations(*args, **kwargs):
     """Silently ignore file operations by returning a dummy file-like object"""
@@ -60,37 +61,60 @@ def execute_and_return_figure(code_string, queue):
         # Ensure cleanup in the subprocess
         plt.close('all')
 
-def safe_execute_plot(code_to_run, timeout_seconds=30):
+def safe_execute_plot(code_to_run: str, timeout_seconds: int = 30, separate_process: bool = False) -> tuple:
+    """
+    The function executes the code_to_run in a separate process or not.
+    The following function can probably be cleaned up.
+    """
+    if separate_process:
+        return_queue = multiprocessing.Queue()
 
-    return_queue = multiprocessing.Queue()
+        process = multiprocessing.Process(
+            target=execute_and_return_figure,
+            args=(code_to_run, return_queue)
+        )
+        process.start()
+        process.join(timeout=timeout_seconds)
 
-    process = multiprocessing.Process(
-        target=execute_and_return_figure,
-        args=(code_to_run, return_queue)
-    )
-    process.start()
-    process.join(timeout=timeout_seconds)
+        # Check if we have a result first, even if process appears alive
+        try:
+            result = return_queue.get(timeout=1)
 
-    # Check if we have a result first, even if process appears alive
-    try:
-        result = return_queue.get(timeout=1)
+            if isinstance(result, bytes):
+                figure = dill.loads(result)
+                return True, figure
+            elif isinstance(result, Exception):
+                return False, str(result)
 
-        if isinstance(result, bytes):
-            figure = dill.loads(result)
-            return True, figure
-        elif isinstance(result, Exception):
-            return False, str(result)
+        except:
+            pass
 
-    except:
-        pass
+        # Clean up process if still running
+        if process.is_alive():
+            process.terminate()
+            process.join()
+            return False, "Process timed out."
 
-    # Clean up process if still running
-    if process.is_alive():
-        process.terminate()
-        process.join()
-        return False, "Process timed out."
+        return False, "Process completed but no result available."
+    
+    else:
+        try:
+            return_queue = Queue()
+            l = execute_and_return_figure(code_to_run, return_queue)
+        
+            result = return_queue.get(timeout=1)
 
-    return False, "Process completed but no result available."
+            if isinstance(result, bytes):
+                figure = dill.loads(result)
+                return True, figure
+            elif isinstance(result, Exception):
+                return False, str(result)
+
+        except:
+            pass
+
+        return False, "Process completed but no result available."
+
 
 def remove_code_affixes(s: str) -> str:
     s = s.strip()

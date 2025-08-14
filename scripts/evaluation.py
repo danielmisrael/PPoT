@@ -27,8 +27,13 @@ def extract_probabilistic_programs(temperature:float, num_eg:int) -> tuple:
         PP.append(tempPP)
         LL.append(tempLL)
 
+    os.makedirs("cache", exist_ok=True)
+    with open(cached_path, "wb") as f: pickle.dump((PP, LL), f)
+
     return PP, LL
 
+def _sample_task(p: ppot.program.Program, greedy: bool, num_samples: int) -> list:
+    return p.greedy(as_list=True) if greedy else p.sample(num_samples, as_list=True)
 def sample_from_probabilistic_programs(PP:list, LL:list, num_samples:int, greedy:bool) -> list:
     """
     Sample from probabilistic programs and evaluate them with respect to the actual image.
@@ -36,28 +41,20 @@ def sample_from_probabilistic_programs(PP:list, LL:list, num_samples:int, greedy
     """
     dataset = ppot.utils.prepare_data("TencentARC/Plot2Code", num_examples=len(PP),
                                       filter_fn = lambda x: "matplotlib" in x["url"], split="test")
-
-    # Evaluating probabilistic programs
-    greedy_text_match_scores = []
-    text_match_scores = []
-    for i in tqdm.tqdm(range(34, len(PP))):
-        currPP = random.choice(PP[i])
-
-        # Evaluate the sampled program from LLM
-        greedy_prog = currPP.greedy()
-        greedy_text_match_scores.append(evaluate_single_example(greedy_prog, dataset["code"][i], True))
-
-        # Evaluate Probabilistic Program samples
-        programs = currPP.greedy() if greedy else currPP.sample(num_samples)
-
-        if isinstance(programs, str):
-            programs = [programs]
-
-        with multiprocessing.Pool() as pool:
-            
-            procs = [pool.apply_async(evaluate_single_example, (p, g)) for p, g in zip(programs, dataset["code"])]
-            scores = [p.get() for p in procs]
-        text_match_scores.append(scores)
+    to_run = [_sample_task(random.choice(PP[i]), greedy, num_samples) for i in tqdm.tqdm(range(len(PP)), "Generating")]
+    with multiprocessing.Pool() as pool:
+        procs = [[pool.apply_async(evaluate_single_example, (p, g)) for p, g in zip(to_run[i], dataset["code"])]
+                 for i in range(len(PP))]
+        text_match_scores = []
+        for P in tqdm.tqdm(procs, desc="Evaluating"):
+            U = []
+            for p in P:
+                try: r = p.get()
+                except Exception as exc:
+                    r = 0
+                    print(">>>>>>>>>", exc)
+                U.append(r)
+            text_match_scores.append(U)
 
     # Computing statistics
     np_scores = np.array(text_match_scores)
@@ -91,3 +88,7 @@ if __name__ == "__main__":
     table.field_names = ["Minimum", "Maximum", "Mean", "Median"]
     table.add_row([min, max, mean, median])
     print(table)
+
+    with open(f"out/stats_t{args.temperature:.1f}_n{args.num_examples}_s{args.num_samples}"
+              + args.isUSPP*"_isUSPP" + args.greedy*"_greedy" + ".pkl", "wb") as f:
+        pickle.dump((min, max, mean, median), f)

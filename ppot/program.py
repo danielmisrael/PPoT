@@ -40,17 +40,18 @@ class Program:
         # Output code.
         return self.code.format(*self.tokenizer.batch_decode(V))
 
-    def sample(self, n: int = 1) -> list:
+    def sample(self, n: int = 1, as_list: bool = False) -> list:
         "Returns n deterministic programs sampled from this probabilistic program."
-        return self.sample_program() if n == 1 else [self.sample_program() for _ in range(n)]
+        return self.sample_program() if (n == 1) and (not as_list) else [self.sample_program() for _ in range(n)]
 
-    def greedy(self) -> str:
+    def greedy(self, as_list: bool = False) -> str:
         "Returns the deterministic program output from the model"
         if self.deterministic: return self.code
         S = torch.argmax(self.P_tensor, dim=-1) if self.homogenous else \
             (torch.argmax(p).item() for p in self.mapping.values())
         V = [self.supp[i][x.item()] for i, x in enumerate(S)]
-        return self.code.format(*self.tokenizer.batch_decode(V))
+        r = self.code.format(*self.tokenizer.batch_decode(V))
+        return [r] if as_list else r
 
 class USPP(Program):
     "Union of Singleton Probabilistic Programs."

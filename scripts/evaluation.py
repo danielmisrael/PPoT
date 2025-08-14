@@ -38,21 +38,26 @@ def sample_from_probabilistic_programs(PP:list, LL:list, num_samples:int, greedy
                                       filter_fn = lambda x: "matplotlib" in x["url"], split="test")
 
     # Evaluating probabilistic programs
+    greedy_text_match_scores = []
     text_match_scores = []
-    for i in tqdm.tqdm(range(len(PP))):
+    for i in tqdm.tqdm(range(34, len(PP))):
         currPP = random.choice(PP[i])
+
+        # Evaluate the sampled program from LLM
+        greedy_prog = currPP.greedy()
+        greedy_text_match_scores.append(evaluate_single_example(greedy_prog, dataset["code"][i], True))
+
+        # Evaluate Probabilistic Program samples
         programs = currPP.greedy() if greedy else currPP.sample(num_samples)
 
         if isinstance(programs, str):
             programs = [programs]
 
-        score_single = []
         with multiprocessing.Pool() as pool:
+            
             procs = [pool.apply_async(evaluate_single_example, (p, g)) for p, g in zip(programs, dataset["code"])]
             scores = [p.get() for p in procs]
         text_match_scores.append(scores)
-
-    print(text_match_scores)
 
     # Computing statistics
     np_scores = np.array(text_match_scores)
@@ -60,6 +65,10 @@ def sample_from_probabilistic_programs(PP:list, LL:list, num_samples:int, greedy
     score_max = np.mean(np.max(np_scores, axis=1))
     score_mean = np.mean(np_scores)
     score_median = np.mean(np.median(np_scores, axis=1))
+
+    # Computing statistics about greedy scores
+    greedy_scores = np.array(greedy_text_match_scores)
+    print(np.mean(greedy_scores))
 
     return score_min, score_max, score_mean, score_median
 

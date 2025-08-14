@@ -74,12 +74,12 @@ def match_texts(texts1, texts2, positions1, positions2, size_ratio):
     match_score = matched / total_pairs
     return match_score
 
-def evaluate_single_example(generated_code:str, ground_truth_code: str) -> float:
+def evaluate_single_example(generated_code:str, ground_truth_code: str, separate_process: bool = False) -> float:
     """
     Evaluates a single program for a single image
     """
 
-    success, result = safe_execute_plot(generated_code, timeout_seconds=10)
+    success, result = safe_execute_plot(generated_code, timeout_seconds=10, separate_process=separate_process)
 
     img_np = None
     if success:

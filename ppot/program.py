@@ -46,7 +46,7 @@ class Program:
 
     def greedy(self, as_list: bool = False) -> str:
         "Returns the deterministic program output from the model"
-        if self.deterministic: return self.code
+        if self.deterministic: return [self.code] if as_list else self.code
         S = torch.argmax(self.P_tensor, dim=-1) if self.homogenous else \
             (torch.argmax(p).item() for p in self.mapping.values())
         V = [self.supp[i][x.item()] for i, x in enumerate(S)]

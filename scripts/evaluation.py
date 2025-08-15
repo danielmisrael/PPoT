@@ -41,7 +41,7 @@ def sample_from_probabilistic_programs(PP:list, LL:list, num_samples:int, greedy
     """
     dataset = ppot.utils.prepare_data("TencentARC/Plot2Code", num_examples=len(PP),
                                       filter_fn = lambda x: "matplotlib" in x["url"], split="test")
-    to_run = [_sample_task(random.choice(PP[i]), greedy, num_samples) for i in tqdm.tqdm(range(len(PP)), "Generating")]
+    to_run = [_sample_task(PP[i][0], greedy, num_samples) for i in tqdm.tqdm(range(len(PP)), "Generating")]
     with multiprocessing.Pool() as pool:
         procs = [[pool.apply_async(evaluate_single_example, (p, g)) for p, g in zip(to_run[i], dataset["code"])]
                  for i in range(len(PP))]
@@ -49,7 +49,7 @@ def sample_from_probabilistic_programs(PP:list, LL:list, num_samples:int, greedy
         for P in tqdm.tqdm(procs, desc="Evaluating"):
             U = []
             for p in P:
-                try: r = p.get()
+                try: r = p.get(30) # 30 seconds timeout
                 except Exception as exc:
                     r = 0
                     print(">>>>>>>>>", exc)
@@ -77,6 +77,7 @@ if __name__ == "__main__":
     parser.add_argument("--greedy", action="store_true", default=False)
 
     args = parser.parse_args()
+    print(args)
 
     PP, LL = extract_probabilistic_programs(args.temperature, args.num_examples)
     min, max, mean, median = sample_from_probabilistic_programs(PP, LL, args.num_samples, args.greedy)

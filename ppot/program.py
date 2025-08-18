@@ -21,32 +21,33 @@ class Program:
         assert len(X) == len(V), "Number of variables must match number of sets of values."
         self.deterministic = len(X) == 0
         self.code = C
-        self.mapping = {x: p for x, p in zip(X, P)}
-        self.tokenizer = tokenizer
-        self.supp = V
         if torch.is_tensor(P): self.homogenous, self.P_tensor = True, P
         elif (not self.deterministic) and all(x.shape == P[0].shape for x in P): self.homogenous, self.P_tensor = True, torch.vstack(P)
         else: self.homogenous, self.P_tensor = False, None
+        if not self.homogenous: self.mapping = {x: p for x, p in zip(X, P)}
+        self.tokenizer = tokenizer
+        self.supp = V
 
-    def sample_program(self) -> str:
+    def sample_program(self, t: float = 1.0) -> str:
         "Returns a deterministic program sampled from this probabilistic program."
         if self.deterministic: return self.code
+        if t == 0.0: return self.greedy()
         # Sample values.
         if self.homogenous:
-            S = torch.argmax(self.P_tensor+Program.GUMBEL.sample(self.P_tensor.shape), dim=-1)
+            S = torch.argmax((self.P_tensor/t)+Program.GUMBEL.sample(self.P_tensor.shape), dim=-1)
         else:
-            S = (torch.argmax(p+Program.GUMBEL.sample(p.shape)) for p in self.mapping.values())
+            S = (torch.argmax((p/t)+Program.GUMBEL.sample(p.shape)) for p in self.mapping.values())
         V = [self.supp[i][x.item()] for i, x in enumerate(S)]
         # Output code.
         return self.code.format(*self.tokenizer.batch_decode(V))
 
-    def sample(self, n: int = 1, as_list: bool = False) -> list:
+    def sample(self, n: int = 1, as_list: bool = False, **kwargs) -> list:
         "Returns n deterministic programs sampled from this probabilistic program."
-        return self.sample_program() if (n == 1) and (not as_list) else [self.sample_program() for _ in range(n)]
+        return self.sample_program(**kwargs) if (n == 1) and (not as_list) else [self.sample_program(**kwargs) for _ in range(n)]
 
     def greedy(self, as_list: bool = False) -> str:
         "Returns the deterministic program output from the model"
-        if self.deterministic: return self.code
+        if self.deterministic: return [self.code] if as_list else self.code
         S = torch.argmax(self.P_tensor, dim=-1) if self.homogenous else \
             (torch.argmax(p).item() for p in self.mapping.values())
         V = [self.supp[i][x.item()] for i, x in enumerate(S)]
@@ -60,14 +61,15 @@ class USPP(Program):
         super().__init__(*args, **kwargs)
         self.V_default = V_default
 
-    def sample_program(self) -> str:
+    def sample_program(self, t: float = 1.0) -> str:
         "Returns a deterministic program sampled from this probabilistic program."
         if self.deterministic: return self.code
+        if t == 0.0: return self.greedy()
         # Assume a uniform prior.
-        X = random.randint(0, len(self.mapping)-1)
+        X = random.randint(0, len(self.V)-1)
         # Sample only X.
         pr = self.P_tensor[X] if self.homogenous else self.mapping[X]
-        x = torch.argmax(pr + Program.GUMBEL.sample(pr.shape))
+        x = torch.argmax((pr/t) + Program.GUMBEL.sample(pr.shape))
         # Fix other values and insert x.
         V = self.V_default.copy()
         V[X] = self.supp[X][x]

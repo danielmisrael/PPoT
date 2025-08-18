@@ -41,7 +41,7 @@ def get_token_pos(token_ids: torch.LongTensor, processor: transformers.AutoProce
 
 
 def programs(token_ids: torch.LongTensor, logits: torch.FloatTensor,
-             processor: transformers.AutoProcessor, supp: list = None, only_one: bool = False,
+             processor: transformers.AutoProcessor, code: str, supp: list = None, only_one: bool = False,
              **kwargs) -> tuple:
     """
     Get probabilistic programs from the generated programs.
@@ -92,8 +92,8 @@ def programs(token_ids: torch.LongTensor, logits: torch.FloatTensor,
         if only_one:
             # Default values for RVs.
             V_default = [x.item() for x in token_ids[i,P]]
-            PP.append(ppot.program.USPP(V_default, C, X, L_supp, supp[i], processor.tokenizer))
-        else: PP.append(ppot.program.Program(C, X, L_supp, supp[i], processor.tokenizer))
+            PP.append(ppot.program.USPP(V_default, C, X, L_supp, supp[i], processor.tokenizer, code[i]))
+        else: PP.append(ppot.program.Program(C, X, L_supp, supp[i], processor.tokenizer, code[i]))
 
     return PP, nLL
 

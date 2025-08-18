@@ -14,16 +14,17 @@ def extract_probabilistic_programs(temperature:float, num_eg:int) -> tuple:
     cached_path = f"cache/pp_t{temperature:.1f}.pkl"
     if os.path.isfile(cached_path):
         PP, LL = ppot.utils.retrieve_programs(cached_path, None)
-        return PP[:num_eg], LL[:num_eg]
+        if len(PP) >= num_eg:
+            return PP[:num_eg], LL[:num_eg]
 
     PP, LL = [], []
     for i in tqdm.tqdm(range(num_eg), desc="Compiling programs"):
         with open(f"/space/renatolg/genPPS/out/Qwen2.5-VL-3B-Instruct_t{temperature:.1f}/data/{i}.pkl", "rb") as f:
             R = pickle.load(f)
         # Load the token ids and logits
-        input_ids, logits = R["ids"], R["logits"]
+        input_ids, logits, code = R["ids"], R["logits"], R["code"]
         # Generate the probabilistic program
-        tempPP, tempLL = ppot.compile.programs(input_ids, logits, processor)
+        tempPP, tempLL = ppot.compile.programs(input_ids, logits, processor, code=code)
         PP.append(tempPP)
         LL.append(tempLL)
 
@@ -31,6 +32,7 @@ def extract_probabilistic_programs(temperature:float, num_eg:int) -> tuple:
     with open(cached_path, "wb") as f: pickle.dump((PP, LL), f)
 
     return PP, LL
+
 
 def _sample_task(p: ppot.program.Program, greedy: bool, num_samples: int, t: float) -> list:
     return p.greedy(as_list=True) if greedy else p.sample(num_samples, as_list=True, t=t)
@@ -89,6 +91,8 @@ if __name__ == "__main__":
     table.add_row([min, max, mean, median])
     print(table)
 
-    with open(f"out/t{args.pp_temperature:.1f}/stats_t{args.temperature:.1f}_n{args.num_examples}_s{args.num_samples}"
+    os.makedirs(f"/space/poorvagarg/genPPS/out/t{args.pp_temperature:.1f}", exist_ok=True)
+
+    with open(f"/space/poorvagarg/genPPS/out/t{args.pp_temperature:.1f}/stats_t{args.temperature:.1f}_n{args.num_examples}_s{args.num_samples}"
               + args.isUSPP*"_isUSPP" + args.greedy*"_greedy" + ".pkl", "wb") as f:
         pickle.dump((min, max, mean, median), f)

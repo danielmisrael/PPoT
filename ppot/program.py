@@ -6,7 +6,7 @@ class Program:
 
     GUMBEL = torch.distributions.gumbel.Gumbel(0, 1)
 
-    def __init__(self, C: str, X: list, P: list, V: list, tokenizer: transformers.AutoTokenizer):
+    def __init__(self, C: str, X: list, P: list, V: list, tokenizer: transformers.AutoTokenizer, raw_program: str):
         """Constructs a probabilistic program.
 
         Arguments:
@@ -27,6 +27,7 @@ class Program:
         if not self.homogenous: self.mapping = {x: p for x, p in zip(X, P)}
         self.tokenizer = tokenizer
         self.supp = V
+        self.raw_program = raw_program
 
     def sample_program(self, t: float = 1.0) -> str:
         "Returns a deterministic program sampled from this probabilistic program."
@@ -57,9 +58,10 @@ class Program:
 class USPP(Program):
     "Union of Singleton Probabilistic Programs."
 
-    def __init__(self, V_default: list, *args, **kwargs):
+    def __init__(self, V_default: list, raw_program: str, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.V_default = V_default
+        self.raw_program = raw_program
 
     def sample_program(self, t: float = 1.0) -> str:
         "Returns a deterministic program sampled from this probabilistic program."

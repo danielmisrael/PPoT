@@ -3,7 +3,7 @@ import transformers, tqdm, numpy as np
 import scripts.text_match_score, ppot.utils
 
 def load_programs(t: float) -> list:
-    data_path = f"out/Qwen2.5-VL-3B-Instruct_t{t:.1f}/data"
+    data_path = f"/space/renatolg/genPPS/out/Qwen2.5-VL-3B-Instruct_t{t:.1f}/data"
     F = os.listdir(data_path)
     C = []
     for f in tqdm.tqdm(F, desc="Loading programs"):

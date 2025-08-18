@@ -64,10 +64,6 @@ def sample_from_probabilistic_programs(PP: list, LL: list, num_samples: int, gre
     score_mean = np.mean(np_scores)
     score_median = np.mean(np.median(np_scores, axis=1))
 
-    # Computing statistics about greedy scores
-    greedy_scores = np.array(greedy_text_match_scores)
-    print(np.mean(greedy_scores))
-
     return score_min, score_max, score_mean, score_median
 
 

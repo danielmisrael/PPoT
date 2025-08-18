@@ -35,16 +35,18 @@ def extract_probabilistic_programs(temperature:float, num_eg:int) -> tuple:
 
 
 def _sample_task(p: ppot.program.Program, greedy: bool, num_samples: int, t: float) -> list:
-    return p.greedy(as_list=True) if greedy else p.sample(num_samples, as_list=True, t=t)
-def sample_from_probabilistic_programs(PP: list, LL: list, num_samples: int, greedy: bool,
-                                       pp_temp: float) -> list:
+    return p.sample(num_samples, as_list=True, t=t)
+
+def _get_greedy(p:ppot.program.Program) -> list:
+    return p.greedy(as_list=True)
+
+def _get_raw(p:ppot.program.Program) -> list:
+    return [p.raw_program]
+
+def evaluate_programs(to_run: list, dataset: dict) -> list:
     """
-    Sample from probabilistic programs and evaluate them with respect to the actual image.
-    It returns statistics of the results
+    Evaluates multiple programs in parallel
     """
-    dataset = ppot.utils.prepare_data("TencentARC/Plot2Code", num_examples=len(PP),
-                                      filter_fn = lambda x: "matplotlib" in x["url"], split="test")
-    to_run = [_sample_task(PP[i][0], greedy, num_samples, pp_temp) for i in tqdm.tqdm(range(len(PP)), "Generating")]
     with multiprocessing.Pool() as pool:
         procs = [[pool.apply_async(evaluate_single_example, (p, g)) for p, g in zip(to_run[i], dataset["code"])]
                  for i in range(len(PP))]
@@ -58,15 +60,38 @@ def sample_from_probabilistic_programs(PP: list, LL: list, num_samples: int, gre
                     print(">>>>>>>>>", exc)
                 U.append(r)
             text_match_scores.append(U)
+    return text_match_scores
 
+def sample_from_probabilistic_programs(PP: list, LL: list, num_samples: int, greedy: bool, raw: bool,
+                                       pp_temp: float) -> list:
+    """
+    Sample from probabilistic programs and evaluate them with respect to the actual image.
+    It returns statistics of the results
+    """
+    dataset = ppot.utils.prepare_data("TencentARC/Plot2Code", num_examples=len(PP),
+                                      filter_fn = lambda x: "matplotlib" in x["url"], split="test")
+    to_run = [_sample_task(PP[i][0], greedy, num_samples, pp_temp) for i in tqdm.tqdm(range(len(PP)), "Generating")]
+    text_match_scores = evaluate_programs(to_run, dataset)
+
+    stats = {}
     # Computing statistics
     np_scores = np.array(text_match_scores)
-    score_min = np.mean(np.min(np_scores, axis=1))
-    score_max = np.mean(np.max(np_scores, axis=1))
-    score_mean = np.mean(np_scores)
-    score_median = np.mean(np.median(np_scores, axis=1))
+    stats["Score Minimum"] = np.mean(np.min(np_scores, axis=1))
+    stats["Score Maximum"] = np.mean(np.max(np_scores, axis=1))
+    stats["Score Mean"] = np.mean(np_scores)
+    stats["Score Median"] = np.mean(np.median(np_scores, axis=1))
 
-    return score_min, score_max, score_mean, score_median
+    if greedy:
+        to_run = [_get_greedy(PP[i][0]) for i in tqdm.tqdm(range(len(PP)), "Greedy Probabilistic Programs")]
+        greedy_scores = evaluate_programs(to_run, dataset)
+        stats["Greedy Scores"] = np.mean(np.array(greedy_scores))
+
+    if raw:
+        to_run = [_get_raw(PP[i][0]) for i in tqdm.tqdm(range(len(PP)), "Raw samples")]
+        raw_scores = evaluate_programs(to_run, dataset)
+        stats["Raw Scores"] = np.mean(np.array(raw_scores))
+
+    return stats
 
 
 if __name__ == "__main__":
@@ -77,22 +102,24 @@ if __name__ == "__main__":
     parser.add_argument("--isUSPP", action="store_true", default=False)
     parser.add_argument("--greedy", action="store_true", default=False)
     parser.add_argument("--pp-temperature", type=float, default=1.0)
+    parser.add_argument("--raw", action="store_true", default=False)
 
     args = parser.parse_args()
     print(args)
 
     PP, LL = extract_probabilistic_programs(args.temperature, args.num_examples)
-    min, max, mean, median = sample_from_probabilistic_programs(PP, LL, args.num_samples,
-                                                                args.greedy, args.pp_temperature)
+    stats = sample_from_probabilistic_programs(PP, LL, args.num_samples,
+                                                                args.greedy, args.raw,
+                                                                args.pp_temperature)
 
     table = prettytable.PrettyTable()
     table.title = "Text Match Score Statistics"
-    table.field_names = ["Minimum", "Maximum", "Mean", "Median"]
-    table.add_row([min, max, mean, median])
+    table.field_names = list(stats.keys())
+    table.add_row(list(stats.values()))
     print(table)
 
     os.makedirs(f"/space/poorvagarg/genPPS/out/t{args.pp_temperature:.1f}", exist_ok=True)
 
     with open(f"/space/poorvagarg/genPPS/out/t{args.pp_temperature:.1f}/stats_t{args.temperature:.1f}_n{args.num_examples}_s{args.num_samples}"
               + args.isUSPP*"_isUSPP" + args.greedy*"_greedy" + ".pkl", "wb") as f:
-        pickle.dump((min, max, mean, median), f)
+        pickle.dump((stats), f)

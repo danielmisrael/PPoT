@@ -1,4 +1,5 @@
-import argparse, pickle
+import argparse, pickle, os
+from ppot.utils import safe_execute_plot
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -16,16 +17,30 @@ if __name__ == "__main__":
             + args.isUSPP*"_isUSPP" + args.greedy*"_greedy" + "_examples" + ".pkl", "rb") as f:
         triples = pickle.load(f)
 
-    user_input = True
-    for i, P in enumerate(triples):
+    print(len(triples))
+    for i in range(len(triples)):
+        P = triples[i]
+        os.makedirs(f"examples/{i}", exist_ok=True)
+        print("--------------------------------------------------")
         print("Sampled Program")
-        print(P[0])
+        with open(f"examples/{i}/sample.py", "w") as f:
+            f.write(P[0])
 
-        cont = input()
+        print("--------------------------------------------------")
         print("Raw Program")
-        print(P[1][0])
+        with open(f"examples/{i}/raw.py", "w") as f:
+            f.write(P[1][0])
         
-        cont=input()
+        print("--------------------------------------------------")
         print("Ground Truth")
-        print(P[2][0])
-        user_input = input()
+        with open(f"examples/{i}/truth.py", "w") as f:
+            f.write(P[2])
+        sample = open(f"examples/{i}/sample.py").read()
+        raw = open(f"examples/{i}/raw.py").read()
+        truth = open(f"examples/{i}/truth.py").read()
+        success, result = safe_execute_plot(sample, timeout_seconds=10, separate_process=True)
+        breakpoint()
+
+
+
+

@@ -70,7 +70,7 @@ def example_programs(raw_programs: list, raw_scores: list, sample_programs: list
     triples = []
     for i, (RP, RS, MS, AS) in enumerate(zip(raw_programs, raw_scores, max_sample_scores, argmax_sample_scores)):
         if MS > 0:
-            triples.append([sample_programs[i][AS], RP, dataset['code']])
+            triples.append([sample_programs[i][AS], RP, dataset['code'][i]])
 
     return triples
 

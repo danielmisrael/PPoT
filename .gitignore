@@ -2,6 +2,7 @@ out/
 data/
 generated_results/
 evaluation_results/
+examples/
 
 *.txt
 !requirements.txt

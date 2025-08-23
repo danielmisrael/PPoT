@@ -25,9 +25,8 @@ class Program:
         elif (not self.deterministic) and all(x.shape == P[0].shape for x in P): self.homogenous, self.P_tensor = True, torch.vstack(P)
         else: self.homogenous, self.P_tensor = False, None
         if not self.homogenous: self.mapping = {x: p for x, p in zip(X, P)}
-        self.tokenizer = tokenizer
-        self.supp = V
         self.raw_program = raw_program
+        self.supp = [tokenizer.batch_decode(v) for v in V]
 
     def sample_program(self, t: float = 1.0) -> str:
         "Returns a deterministic program sampled from this probabilistic program."
@@ -40,7 +39,7 @@ class Program:
             S = (torch.argmax(torch.log_softmax(p/t, dim=-1)+Program.GUMBEL.sample(p.shape)) for p in self.mapping.values())
         V = [self.supp[i][x.item()] for i, x in enumerate(S)]
         # Output code.
-        return self.code.format(*self.tokenizer.batch_decode(V))
+        return self.code.format(*V)
 
     def sample(self, n: int = 1, as_list: bool = False, **kwargs) -> list:
         "Returns n deterministic programs sampled from this probabilistic program."
@@ -52,7 +51,7 @@ class Program:
         S = torch.argmax(self.P_tensor, dim=-1) if self.homogenous else \
             (torch.argmax(p).item() for p in self.mapping.values())
         V = [self.supp[i][x.item()] for i, x in enumerate(S)]
-        r = self.code.format(*self.tokenizer.batch_decode(V))
+        r = self.code.format(*V)
         return [r] if as_list else r
 
 class USPP(Program):
@@ -76,4 +75,4 @@ class USPP(Program):
         V = self.V_default.copy()
         V[X] = self.supp[X][x]
         # Output code.
-        return self.code.format(*self.tokenizer.batch_decode(V))
+        return self.code.format(*V)

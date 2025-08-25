@@ -82,7 +82,7 @@ def programs(token_ids: torch.LongTensor, logits: torch.FloatTensor,
         tokens = processor.batch_decode(T, skip_special_tokens=True)
         for j, t in enumerate(tokens):
             tokens[j] = t.replace("{", "{{").replace("}", "}}")
-        for j, p in enumerate(P): 
+        for j, p in enumerate(P):
             tokens[p] = f"{{{j}}}" # turn it into an RV
         C = ppot.utils.remove_code_affixes(''.join(tokens))
         # Prepare random variable names as a list.
@@ -91,7 +91,7 @@ def programs(token_ids: torch.LongTensor, logits: torch.FloatTensor,
         L_supp = [torch.log_softmax(L[i,p,x], dim=-1) for p, x in zip(P, supp[i])]
         if only_one:
             # Default values for RVs.
-            V_default = [x.item() for x in token_ids[i,P]]
+            V_default = processor.tokenizer.batch_decode([x.item() for x in token_ids[i,P]])
             PP.append(ppot.program.USPP(V_default, C, X, L_supp, supp[i], processor.tokenizer, code[i]))
         else: PP.append(ppot.program.Program(C, X, L_supp, supp[i], processor.tokenizer, code[i]))
 

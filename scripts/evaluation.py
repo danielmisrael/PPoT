@@ -2,6 +2,20 @@ import argparse, multiprocessing, random, os
 import transformers, pickle, datasets, numpy as np, tqdm, prettytable
 import ppot.compile, ppot.utils
 from scripts.text_match_score import evaluate_single_example
+import subprocess, uuid
+
+def subprocess_call(p, g):
+    pfile = f"p_{uuid.uuid4().hex}.py"
+    gfile = f"g_{uuid.uuid4().hex}.py"
+    with open(pfile, "w") as f:
+        f.write(p)
+    with open(gfile, "w") as f:
+        f.write(g)
+
+    result = subprocess.run(['python', '-m', 'scripts.compute_tms', '--generated_code', pfile, '--ground_truth_code', gfile], capture_output=True, text=True, check=True)
+    os.remove(pfile)
+    os.remove(gfile)
+    return float(result.stdout.strip("\n"))
 
 def extract_probabilistic_programs(temperature:float, num_eg:int) -> tuple:
     # Loading the processor
@@ -33,7 +47,6 @@ def extract_probabilistic_programs(temperature:float, num_eg:int) -> tuple:
 
     return PP, LL
 
-
 def _sample_task(p: ppot.program.Program, greedy: bool, num_samples: int, t: float) -> list:
     return p.sample(num_samples, as_list=True, t=t)
 
@@ -48,7 +61,8 @@ def evaluate_programs(to_run: list, dataset: dict) -> list:
     Evaluates multiple programs in parallel
     """
     with multiprocessing.Pool() as pool:
-        procs = [[pool.apply_async(evaluate_single_example, (p, g)) for p, g in zip(to_run[i], dataset["code"])]
+        
+        procs = [[pool.apply_async(subprocess_call, (p, g)) for p, g in zip(to_run[i], [dataset["code"][i]])]
                  for i in range(len(PP))]
         text_match_scores = []
         for P in tqdm.tqdm(procs, desc="Evaluating"):
@@ -69,7 +83,7 @@ def example_programs(raw_programs: list, raw_scores: list, sample_programs: list
     argmax_sample_scores = np.argmax(np.array(sample_scores), axis=1)
     triples = []
     for i, (RP, RS, MS, AS) in enumerate(zip(raw_programs, raw_scores, max_sample_scores, argmax_sample_scores)):
-        if MS > 0:
+        if MS > RS:
             triples.append([sample_programs[i][AS], RP, dataset['code'][i]])
 
     return triples

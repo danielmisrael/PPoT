@@ -23,6 +23,7 @@ def execute_and_return_figure(code_string, queue):
     try:
         # We need a non-interactive backend for this to work reliably
         # when not running in a main thread.
+        plt.close()
         plt.switch_backend('Agg')
 
         # Override file operations

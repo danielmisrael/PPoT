@@ -91,12 +91,14 @@ def generate_code_for_image(model: transformers.AutoModelForCausalLM, processor:
     with torch.no_grad():
         out = model.generate(
             **inputs,
-            top_p=1.0,
-            top_k=0,
+            # top_p=1.0,
+            # top_k=0,
             max_new_tokens=2048,
             return_dict_in_generate=True,
             output_logits=True,
-            **kwargs
+            # output_scores=True, # output_scores correspond to the true logits the model is sampling from
+            repetition_penalty=1.0, # in this case scores and logits are the same
+            **kwargs # contains do_sample=False, temperature
         )
         generated_ids_trimmed = out.sequences[:,inputs.input_ids.numel():].cpu()
         output_text = processor.batch_decode(
@@ -106,6 +108,7 @@ def generate_code_for_image(model: transformers.AutoModelForCausalLM, processor:
     # Extract code
     code = extract_code(output_text)
     logits = torch.concatenate(tuple(x.cpu() for x in out.logits), dim=-1).reshape(out.logits[0].shape[0], len(out.logits), -1)
+    # scores = torch.concatenate(tuple(x.cpu() for x in out.scores), dim=-1).reshape(out.scores[0].shape[0], len(out.scores), -1)
 
     return code, generated_ids_trimmed, logits
 
@@ -115,6 +118,7 @@ def generate_code(idx: int, item: dict, model: transformers.AutoModel,
     chkpnt_path = os.path.join(output_path, "ckpt", f"{idx}")
     # if os.path.isfile(chkpnt_path): return
     print(ground_truth_path)
+
     code, ids, logits = generate_code_for_image(model, processor, ground_truth_path,
                                                 item["instruction"], **kwargs)
     for i, x in enumerate(code):
@@ -129,6 +133,8 @@ def generate_code(idx: int, item: dict, model: transformers.AutoModel,
             'generated_image_path': generated_image_path
         }
 
+
+    os.makedirs(os.path.join(output_path, "direct/instruct/"), exist_ok=True)
     with open(os.path.join(output_path, "direct/instruct/generated_code.jsonl"), 'a') as f: f.write(json.dumps(result) + '\n')
     with open(os.path.join(output_path, "data", f"{idx}.pkl"), "wb") as f:
         pickle.dump({"code": code, "ids": ids, "logits": logits}, f)
@@ -166,9 +172,9 @@ def main():
         item["image"].save(image_path)
         # Generate
         generate_code(idx, item, model, processor, image_path, save_path,
-                      temperature=1.0 if args.temperature == 0 else args.temperature,
-                      num_return_sequences=1 if args.temperature == 0 else args.num_samples,
-                      do_sample=args.temperature > 0)
+                    temperature=1.0 if args.temperature == 0 else args.temperature,
+                    num_return_sequences=1 if args.temperature == 0 else args.num_samples,
+                    do_sample=args.temperature > 0)
 
 if __name__ == "__main__":
     main()

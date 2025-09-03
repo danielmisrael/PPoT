@@ -9,7 +9,7 @@ import Levenshtein
 from Plot2Code.plot2code.utils import get_parser, get_save_path, get_eval_path, read_jsonl_file
 from matplotlib.pyplot import *
 from ppot.utils import safe_execute_plot
-import io
+import io, uuid, dill
 
 def position_similarity(pos1, pos2, size_ratio):
     pos2_adjusted = pos2 * size_ratio
@@ -78,34 +78,137 @@ def evaluate_single_example(generated_code:str, ground_truth_code: str, separate
     """
     Evaluates a single program for a single image
     """
+    try:
+        exec(generated_code.lstrip("```python"))
+        fig2 = plt.gcf()
+        serialized_figure = dill.dumps(fig2)
+        fig2 = dill.loads(serialized_figure)
+    except:
+        pass
+    # queue.put(serialized_figure)
+    # exec(generated_code)
+    fig2 = plt.gcf()
+    fig2.savefig(f'{uuid.uuid4().hex}.png')
+    plt.close()
+    matplotlib.rcdefaults()
+    plt.cla()
+    plt.clf()
+    plt.close("all")
+    img_np = np.array(fig2)
+    all_white = np.all(img_np == 255)
+    if all_white:
+        return 0.0
+    
+    try:
+        exec(ground_truth_code)
+        fig1 = plt.gcf()
+        serialized_figure = dill.dumps(fig1)
+        fig1 = dill.loads(serialized_figure)
+    except:
+        pass
+    # exec(ground_truth_code)
+    fig1 = plt.gcf()
+    fig1.savefig(f'{uuid.uuid4().hex}.png')
+    plt.close()
+    matplotlib.rcdefaults()
+    plt.cla()
+    plt.clf()
+    plt.close("all")
+    img_np = np.array(fig1)
+    all_white = np.all(img_np == 255)
+    if all_white:
+        return 0.0
 
-    success, result = safe_execute_plot(generated_code, timeout_seconds=10, separate_process=separate_process)
+    texts1, positions1 = extract_texts(fig1)
+    texts2, positions2 = extract_texts(fig2)
+    # Calculate the size ratio
+    fig1_size = np.array(fig1.get_size_inches())
+    fig2_size = np.array(fig2.get_size_inches())
+    size_ratio = fig1_size / fig2_size
+
+    # Calculate the match score
+    match_score = match_texts(texts1, texts2, positions1, positions2, size_ratio)
+    return match_score
+
+    # # Append the generated image path, ground truth code and match score to the JSONL file
+    # result = {'ground_truth_path': ground_truth_path, 'test_image_path': test_image_path, 'text_match_score': match_score}
+    # all_results.append(result)
+    # jsonl_file.write(json.dumps(result) + "\n")
+    # jsonl_file.flush()
+
+def evaluate_single_example3(generated_code:str, ground_truth_code: str, separate_process: bool = False) -> float:
+    """
+    Evaluates a single program for a single image
+    """
+    # 0.1015
+    success, result = safe_execute_plot(generated_code)
 
     img_np = None
-    if success:
-        fig2 = result
-        buf = io.BytesIO()
-        fig2.savefig(buf, format='png')
-        buf.seek(0)  # Rewind the buffer to the beginning
-        img = Image.open(buf)  # Open the buffer content as a PIL Image
-        plt.close()
-        matplotlib.rcdefaults()
-        plt.cla()
-        plt.clf()
-        plt.close("all")
-        img_np = np.array(img)
+    fig2 = result
+    buf = io.BytesIO()
+    fig2.savefig(buf, format='png')
+    buf.seek(0)  # Rewind the buffer to the beginning
+    img = Image.open(buf)  # Open the buffer content as a PIL Image
+    plt.close()
+    matplotlib.rcdefaults()
+    plt.cla()
+    plt.clf()
+    plt.close("all")
+    img_np = np.array(img)
           # Save the figure to the in-memory buffer as a PNG
 
     all_white = np.all(img_np == 255)
 
-    if all_white or not success:
-        return 0.0
-    # breakpoint()
+    # if all_white:
+    #     return 0.0
     success, result = safe_execute_plot(ground_truth_code)
-    if success:
-        fig1 = result
-    else:
-        return 0
+    # if success:
+    fig1 = result
+    # else:
+        # return 0
+    plt.close()
+    matplotlib.rcdefaults()
+    plt.cla()
+    plt.clf()
+    plt.close("all")
+
+    # # Extract texts and positions from the figures
+    # # fig1.savefig("ground.png")
+    # # fig2.savefig("generated.png")
+    texts1, positions1 = extract_texts(fig1)
+    texts2, positions2 = extract_texts(fig2)
+    # Calculate the size ratio
+    fig1_size = np.array(fig1.get_size_inches())
+    fig2_size = np.array(fig2.get_size_inches())
+    size_ratio = fig1_size / fig2_size
+
+    # Calculate the match score
+    match_score = match_texts(texts1, texts2, positions1, positions2, size_ratio)
+    return match_score
+
+    # # Append the generated image path, ground truth code and match score to the JSONL file
+    # result = {'ground_truth_path': ground_truth_path, 'test_image_path': test_image_path, 'text_match_score': match_score}
+    # all_results.append(result)
+    # jsonl_file.write(json.dumps(result) + "\n")
+    # jsonl_file.flush()
+
+def evaluate_single_example2(generated_code:str, ground_truth_code: str, separate_process: bool = False) -> float:
+    """
+    Evaluates a single program for a single image
+    """
+    # 0.2755
+    exec(ground_truth_code)
+    fig1 = plt.gcf()
+    fig1.savefig('gt_img.png')
+    plt.close()
+    matplotlib.rcdefaults()
+    plt.cla()
+    plt.clf()
+    plt.close("all")
+
+    exec(generated_code)
+    fig2 = plt.gcf()
+    fig2.savefig('test_img.png')
     plt.close()
     matplotlib.rcdefaults()
     plt.cla()

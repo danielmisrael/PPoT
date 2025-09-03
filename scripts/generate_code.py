@@ -91,8 +91,8 @@ def generate_code_for_image(model: transformers.AutoModelForCausalLM, processor:
     with torch.no_grad():
         out = model.generate(
             **inputs,
-            # top_p=1.0,
-            # top_k=0,
+            top_p=1.0,
+            top_k=0,
             max_new_tokens=2048,
             return_dict_in_generate=True,
             output_logits=True,

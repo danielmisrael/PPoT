@@ -1,23 +1,25 @@
-import argparse, multiprocessing, random, os
-import transformers, pickle, datasets, numpy as np, tqdm, prettytable
+import argparse, random, os
+import pickle
+import dill, multiprocessing
+dill.Pickler.dumps, dill.Pickler.loads = dill.dumps, dill.loads
+multiprocessing.reduction.ForkingPickler = dill.Pickler
+multiprocessing.reduction.dump = dill.dump
+# multiprocessing.queues._ForkingPickler = dill.Pickler
+import transformers, datasets, numpy as np, tqdm, prettytable
 import ppot.compile, ppot.utils
 from scripts.text_match_score import evaluate_single_example
 import subprocess, uuid
 
-def subprocess_call(p, g):
-    pfile = f"p_{uuid.uuid4().hex}.py"
-    gfile = f"g_{uuid.uuid4().hex}.py"
+def subprocess_call(p, g, pfile, gfile):
     with open(pfile, "w") as f:
         f.write(p)
     with open(gfile, "w") as f:
         f.write(g)
 
     result = subprocess.run(['python', '-m', 'scripts.compute_tms', '--generated_code', pfile, '--ground_truth_code', gfile], capture_output=True, text=True, check=True)
-    os.remove(pfile)
-    os.remove(gfile)
     return float(result.stdout.strip("\n"))
 
-def extract_probabilistic_programs(temperature:float, num_eg:int) -> tuple:
+def extract_probabilistic_programs(temperature:float, num_eg:int, out_loc:str) -> tuple:
     # Loading the processor
     processor = transformers.AutoProcessor.from_pretrained("Qwen/Qwen2.5-VL-3B-Instruct")
 
@@ -33,7 +35,7 @@ def extract_probabilistic_programs(temperature:float, num_eg:int) -> tuple:
 
     PP, LL = [], []
     for i in tqdm.tqdm(range(num_eg), desc="Compiling programs"):
-        with open(f"/space/renatolg/genPPS/out/Qwen2.5-VL-3B-Instruct_t{temperature:.1f}/data/{i}.pkl", "rb") as f:
+        with open(f"{out_loc}/Qwen2.5-VL-3B-Instruct_t{temperature:.1f}/data/{i}.pkl", "rb") as f:
             R = pickle.load(f)
         # Load the token ids and logits
         input_ids, logits, code = R["ids"], R["logits"], R["code"]
@@ -60,18 +62,28 @@ def evaluate_programs(to_run: list, dataset: dict) -> list:
     """
     Evaluates multiple programs in parallel
     """
+    # breakpoint()    
     with multiprocessing.Pool() as pool:
-        
-        procs = [[pool.apply_async(subprocess_call, (p, g)) for p, g in zip(to_run[i], [dataset["code"][i]])]
-                 for i in range(len(PP))]
+        procs = []        
+        for i in range(len(to_run)):
+            sub_procs = []
+            for j in to_run[i]:
+                pfile = f"p_{uuid.uuid4().hex}.py"
+                gfile = f"g_{uuid.uuid4().hex}.py"
+                sub_procs.append([pool.apply_async(subprocess_call, (j, dataset["code"][i], pfile, gfile)), pfile, gfile])
+            procs.append(sub_procs)
+# procs = [[pool.apply_async(subprocess_call, (p, g)) for p, g in zip(to_run[i], [dataset["code"][i]])]
+#                  for i in range(len(to_run))]
         text_match_scores = []
         for P in tqdm.tqdm(procs, desc="Evaluating"):
             U = []
             for p in P:
-                try: r = p.get(30) # 30 seconds timeout
+                try: r = p[0].get(60) # 30 seconds timeout
                 except Exception as exc:
                     r = 0
                     print(">>>>>>>>>", exc)
+                os.remove(p[1])
+                os.remove(p[2])
                 U.append(r)
             text_match_scores.append(U)
     return text_match_scores
@@ -133,11 +145,12 @@ if __name__ == "__main__":
     parser.add_argument("--pp-temperature", type=float, default=1.0)
     parser.add_argument("--raw", action="store_true", default=False)
     parser.add_argument("--dump", action="store_true", default=False)
+    parser.add_argument("--out_loc", type=str, required=True)
 
     args = parser.parse_args()
     print(args)
 
-    PP, LL = extract_probabilistic_programs(args.temperature, args.num_examples)
+    PP, LL = extract_probabilistic_programs(args.temperature, args.num_examples, args.out_loc)
     stats, triples = sample_from_probabilistic_programs(PP, LL, args.num_samples,
                                                                 args.greedy, args.raw,
                                                                 args.pp_temperature, args.dump)

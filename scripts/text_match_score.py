@@ -6,7 +6,6 @@ from tqdm import tqdm
 from PIL import Image
 import numpy as np
 import Levenshtein
-from Plot2Code.plot2code.utils import get_parser, get_save_path, get_eval_path, read_jsonl_file
 from matplotlib.pyplot import *
 from ppot.utils import safe_execute_plot
 import io, uuid, dill
@@ -81,15 +80,11 @@ def evaluate_single_example(generated_code:str, ground_truth_code: str, separate
     try:
         exec(generated_code.lstrip("```python"))
         fig2 = plt.gcf()
-        # serialized_figure = dill.dumps(fig2)
-        # fig2 = dill.loads(serialized_figure)
     except:
         pass
-    # queue.put(serialized_figure)
-    # exec(generated_code.lstrip("```python"))
+
     fig2 = plt.gcf()
-    # fig2_name = uuid.uuid4().hex
-    # fig2.savefig(f'{fig2_name}.png')
+
     plt.close()
     matplotlib.rcdefaults()
     plt.cla()
@@ -103,14 +98,9 @@ def evaluate_single_example(generated_code:str, ground_truth_code: str, separate
     try:
         exec(ground_truth_code)
         fig1 = plt.gcf()
-        # serialized_figure = dill.dumps(fig1)
-        # fig1 = dill.loads(serialized_figure)
     except:
         pass
-    # exec(ground_truth_code)
     fig1 = plt.gcf()
-    # fig1_name = uuid.uuid4().hex
-    # fig1.savefig(f'{fig1_name}.png')
     plt.close()
     matplotlib.rcdefaults()
     plt.cla()
@@ -118,9 +108,6 @@ def evaluate_single_example(generated_code:str, ground_truth_code: str, separate
     plt.close("all")
     img_np = np.array(fig1)
     
-    # os.remove(f'{fig1_name}.png')
-    # os.remove(f'{fig2_name}.png')
-
     texts1, positions1 = extract_texts(fig1)
     texts2, positions2 = extract_texts(fig2)
     # Calculate the size ratio
@@ -131,114 +118,3 @@ def evaluate_single_example(generated_code:str, ground_truth_code: str, separate
     # Calculate the match score
     match_score = match_texts(texts1, texts2, positions1, positions2, size_ratio)
     return match_score
-
-    # # Append the generated image path, ground truth code and match score to the JSONL file
-    # result = {'ground_truth_path': ground_truth_path, 'test_image_path': test_image_path, 'text_match_score': match_score}
-    # all_results.append(result)
-    # jsonl_file.write(json.dumps(result) + "\n")
-    # jsonl_file.flush()
-
-if __name__ == "__main__":
-
-    parser = get_parser()
-    args = parser.parse_args()
-
-    # Read the JSONL file
-    generated_code_file =  get_save_path(args)
-    content_list = read_jsonl_file(generated_code_file)
-
-
-    eval_dir = get_eval_path(args)
-    text_match_score_file = os.path.join(eval_dir, args.text_match_score_results)
-
-    # Store all results to calculate statistics
-    all_results = []
-
-    # Open the JSONL file in write mode
-    with open(text_match_score_file, "w") as jsonl_file:
-        for item in tqdm(content_list, desc="Evaluating text image similarity"):
-            ground_truth_path = item['ground_truth_path']
-            test_image_path = item['generated_image_path']
-            code = item['code']
-            ground_truth_code = item['ground_truth_code']
-
-            success, result = safe_execute_plot(code, timeout_seconds=10)
-
-            img_np = None
-            if success:
-                fig2 = result
-                fig2.savefig(test_image_path)
-                print(f"Saved figure to {test_image_path}")
-                plt.close()
-                matplotlib.rcdefaults()
-                plt.cla()
-                plt.clf()
-                plt.close("all")
-                img = Image.open(test_image_path)
-                img_np = np.array(img)
-
-            all_white = np.all(img_np == 255)
-
-            if img_np is None or all_white:
-                result = {'ground_truth_path': ground_truth_path, 'test_image_path': test_image_path, 'text_match_score': 0.0}
-                all_results.append(result)
-                jsonl_file.write(json.dumps(result) + "\n")
-                jsonl_file.flush()
-                if all_white:
-                    print(f"Skipping all white image: {test_image_path}")
-                else:
-                    print(f"Skipping failed to generate plot: {test_image_path}")
-                continue
-
-            exec(ground_truth_code)
-            fig1 = plt.gcf()
-            plt.close()
-            matplotlib.rcdefaults()
-            plt.cla()
-            plt.clf()
-            plt.close("all")
-
-
-            # Extract texts and positions from the figures
-            texts1, positions1 = extract_texts(fig1)
-            texts2, positions2 = extract_texts(fig2)
-            # Calculate the size ratio
-            fig1_size = np.array(fig1.get_size_inches())
-            fig2_size = np.array(fig2.get_size_inches())
-            size_ratio = fig1_size / fig2_size
-
-            # Calculate the match score
-            match_score = match_texts(texts1, texts2, positions1, positions2, size_ratio)
-
-            # Append the generated image path, ground truth code and match score to the JSONL file
-            result = {'ground_truth_path': ground_truth_path, 'test_image_path': test_image_path, 'text_match_score': match_score}
-            all_results.append(result)
-            jsonl_file.write(json.dumps(result) + "\n")
-            jsonl_file.flush()
-
-    # Calculate overall statistics
-    if all_results:
-        scores = [result['text_match_score'] for result in all_results]
-        overall_score = np.mean(scores)
-        standard_error = np.std(scores) / np.sqrt(len(scores))
-
-        print(f"Overall text match score: {overall_score:.4f} ± {standard_error:.4f}")
-        print(f"Number of evaluated samples: {len(all_results)}")
-
-        # Write statistics at the top of the file
-        stats = {
-            'overall_score': overall_score,
-            'standard_error': standard_error,
-            'num_samples': len(all_results)
-        }
-
-        # Read the current file content
-        with open(text_match_score_file, 'r') as f:
-            lines = f.readlines()
-
-        # Write statistics at the top, then the original content
-        with open(text_match_score_file, 'w') as f:
-            f.write(json.dumps(stats) + '\n')
-            f.writelines(lines)
-    else:
-        print("No results to evaluate")

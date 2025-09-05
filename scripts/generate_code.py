@@ -167,7 +167,8 @@ def main():
                                  lambda x: "matplotlib" in x["url"], split="test")
 
     # Get save path
-    save_path = get_save_path(args.save_dir, model_name, append=f"t{args.temperature}")
+    tag = "direct" if args.direct else "instruct"
+    save_path = get_save_path(args.save_dir, model_name, append=f"t{args.temperature}_{tag}")
     print(f"Results will be saved to {save_path}")
 
     # Generate code for each sample

@@ -81,14 +81,15 @@ def evaluate_single_example(generated_code:str, ground_truth_code: str, separate
     try:
         exec(generated_code.lstrip("```python"))
         fig2 = plt.gcf()
-        serialized_figure = dill.dumps(fig2)
-        fig2 = dill.loads(serialized_figure)
+        # serialized_figure = dill.dumps(fig2)
+        # fig2 = dill.loads(serialized_figure)
     except:
         pass
     # queue.put(serialized_figure)
-    # exec(generated_code)
+    # exec(generated_code.lstrip("```python"))
     fig2 = plt.gcf()
-    fig2.savefig(f'{uuid.uuid4().hex}.png')
+    # fig2_name = uuid.uuid4().hex
+    # fig2.savefig(f'{fig2_name}.png')
     plt.close()
     matplotlib.rcdefaults()
     plt.cla()
@@ -102,22 +103,23 @@ def evaluate_single_example(generated_code:str, ground_truth_code: str, separate
     try:
         exec(ground_truth_code)
         fig1 = plt.gcf()
-        serialized_figure = dill.dumps(fig1)
-        fig1 = dill.loads(serialized_figure)
+        # serialized_figure = dill.dumps(fig1)
+        # fig1 = dill.loads(serialized_figure)
     except:
         pass
     # exec(ground_truth_code)
     fig1 = plt.gcf()
-    fig1.savefig(f'{uuid.uuid4().hex}.png')
+    # fig1_name = uuid.uuid4().hex
+    # fig1.savefig(f'{fig1_name}.png')
     plt.close()
     matplotlib.rcdefaults()
     plt.cla()
     plt.clf()
     plt.close("all")
     img_np = np.array(fig1)
-    all_white = np.all(img_np == 255)
-    if all_white:
-        return 0.0
+    
+    # os.remove(f'{fig1_name}.png')
+    # os.remove(f'{fig2_name}.png')
 
     texts1, positions1 = extract_texts(fig1)
     texts2, positions2 = extract_texts(fig2)

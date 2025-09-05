@@ -5,6 +5,7 @@ from qwen_vl_utils import process_vision_info
 import torch, matplotlib.pyplot as plt, shutil, argparse, matplotlib, transformers, numpy as np
 import datasets, tqdm
 import ppot.utils as utils
+from typing import Optional
 
 def encode_image_to_base64(image_path: str) -> str:
     """Encode image to base64 string"""
@@ -53,11 +54,14 @@ def get_save_path(out_path: str, model_name: str, append: str = None) -> str:
     return save_path
 
 def generate_code_for_image(model: transformers.AutoModelForCausalLM, processor: AutoProcessor,
-                            image_path: str, instruction: str, **kwargs) -> tuple:
+                            image_path: str, instruction: Optional[str] = None, **kwargs) -> tuple:
     """Generate code for a single image"""
 
-    # Create prompt
-    text_prompt = f"{instruction}\n\nPlease generate Python matplotlib code to create a plot that looks like the given image. The code should be surrounded by ```python and ```."
+    if instruction is None:
+        text_prompt = f"Please generate Python matplotlib code to create a plot that looks like the given image. The code should be surrounded by ```python and ```."
+    else:
+        # Create prompt
+        text_prompt = f"{instruction}\n\nPlease generate Python matplotlib code to create a plot that looks like the given image. The code should be surrounded by ```python and ```."
 
     # Create messages format
     messages = [
@@ -114,13 +118,13 @@ def generate_code_for_image(model: transformers.AutoModelForCausalLM, processor:
 
 def generate_code(idx: int, item: dict, model: transformers.AutoModel,
                          processor: transformers.AutoProcessor, ground_truth_path: str,
-                         output_path: str, **kwargs):
+                         output_path: str, direct: bool = False, **kwargs):
     chkpnt_path = os.path.join(output_path, "ckpt", f"{idx}")
     # if os.path.isfile(chkpnt_path): return
     print(ground_truth_path)
 
     code, ids, logits = generate_code_for_image(model, processor, ground_truth_path,
-                                                item["instruction"], **kwargs)
+                                                item["instruction"] if not direct else None, **kwargs)
     for i, x in enumerate(code):
         generated_image_path = os.path.join(output_path, "imgs", f"{idx}-{i}.png")
 
@@ -133,9 +137,9 @@ def generate_code(idx: int, item: dict, model: transformers.AutoModel,
             'generated_image_path': generated_image_path
         }
 
-
-    os.makedirs(os.path.join(output_path, "direct/instruct/"), exist_ok=True)
-    with open(os.path.join(output_path, "direct/instruct/generated_code.jsonl"), 'a') as f: f.write(json.dumps(result) + '\n')
+    tag = "direct/" if direct else "instruct/"
+    os.makedirs(os.path.join(output_path, tag), exist_ok=True)
+    with open(os.path.join(output_path, tag, "generated_code.jsonl"), 'a') as f: f.write(json.dumps(result) + '\n')
     with open(os.path.join(output_path, "data", f"{idx}.pkl"), "wb") as f:
         pickle.dump({"code": code, "ids": ids, "logits": logits}, f)
     with open(chkpnt_path, "w") as f: f.write(' ')
@@ -148,6 +152,7 @@ def main():
     parser.add_argument("--num_samples", type=int, default=16, help="Number of samples to generate")
     parser.add_argument("--temperature", type=float, default=0.7, help="Sampling temperature")
     parser.add_argument("--save_dir", type=str, default="out/", help="Path to save results")
+    parser.add_argument("--direct", action="store_true", help="Don't use instruction")
 
     args = parser.parse_args()
 
@@ -172,6 +177,7 @@ def main():
         item["image"].save(image_path)
         # Generate
         generate_code(idx, item, model, processor, image_path, save_path,
+                    direct=args.direct,
                     temperature=1.0 if args.temperature == 0 else args.temperature,
                     num_return_sequences=1 if args.temperature == 0 else args.num_samples,
                     do_sample=args.temperature > 0)

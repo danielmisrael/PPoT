@@ -61,6 +61,9 @@ HTML_HEAD = """
             padding: 0 10px;
             text-align: left;
         }
+        pre {
+            white-space: pre-wrap;
+        }
     </style>
 </head>
 
@@ -109,7 +112,7 @@ def html(H: torch.FloatTensor, I: torch.LongTensor, L: torch.FloatTensor,
     for i in range(H.shape[0]):
         body += f"\n<h2>Program  {i}</h2><br><hr><br>\n<pre>"
         for j in range(3, H.shape[1]):
-            if stop[i,j] or T[i][j] == "```": break
+            if stop[i,j] or T[i][j] == "```" or T[i][j] == "``": break
             body += html_token_format(T[i][j], palette.next(H_norm[i,j]), L_norm[i,j], tokenizer, **kwargs)
             if "\n" in T[i][j]: body += "\n"
         body += "</pre>\n<br><hr><br>\n"
@@ -125,7 +128,7 @@ def embedd_image(img: PIL.Image) -> str:
 def foreach_html(n: int, path: str, save_path: str = None, add_instruction: bool = True,
                  add_ground_truth: bool = True, **kwargs) -> list:
     B = []
-    if add_instruction:
+    if add_instruction or add_ground_truth:
         data = ppot.utils.prepare_data("TencentARC/Plot2Code", n,
                                        lambda x: "matplotlib" in x["url"], split="test")
         instructions = data["instruction"]

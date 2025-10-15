@@ -3,7 +3,7 @@ import torch, transformers, numpy as np
 import ppot.program, ppot.utils
 
 def get_token_pos(token_ids: torch.LongTensor, processor: transformers.AutoProcessor,
-                  rule: str = r'(?<![a-zA-Z_][0-9]*)([0-9])') -> list:
+                  rule: str = r"(?<!(?:[a-df-zA-DF-Z_][0-9]*)|(?:[eE][eE]+[0-9]*)|(?:#.*))([0-9])") -> list:
     """
     Get the position of the random variables from the generated programs.
 

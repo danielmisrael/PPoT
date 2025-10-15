@@ -148,3 +148,7 @@ def retrieve_programs(path: str, n: int) -> tuple:
         PP, LL = R, pickle.load(f)
     if n is not None: return [P[:n] for P in PP], [L[:n] for L in LL]
     return PP, LL
+
+def is_tokenizer(o) -> bool:
+    return isinstance(o, transformers.AutoTokenizer) or isinstance(o, transformers.tokenization_utils_base.PreTrainedTokenizerBase)
+

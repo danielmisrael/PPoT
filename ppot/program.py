@@ -1,12 +1,14 @@
 import random, math
 import torch.distributions.gumbel, transformers
+import ppot.utils
 
 class Program:
     "A probabilistic program."
 
     GUMBEL = torch.distributions.gumbel.Gumbel(0, 1)
 
-    def __init__(self, C: str, X: list, P: list, V: list, tokenizer: transformers.AutoTokenizer, raw_program: str):
+    def __init__(self, C: str, X: list, P: list, V: list, tokenizer: transformers.AutoTokenizer,
+                 raw_program: str, device: str = None):
         """Constructs a probabilistic program.
 
         Arguments:
@@ -57,8 +59,9 @@ class Program:
 class USPP(Program):
     "Union of Singleton Probabilistic Programs."
 
-    def __init__(self, V_default: list, raw_program: str, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, V_default: list, C: str, X: list, P: list, V: list,
+                 tokenizer: transformers.AutoTokenizer, raw_program: str, **kwargs):
+        super().__init__(C, X, P, V, tokenizer, raw_program, **kwargs)
         self.V_default = V_default
         self.raw_program = raw_program
 

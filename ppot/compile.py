@@ -23,8 +23,9 @@ def get_token_pos(token_ids: torch.LongTensor, processor: transformers.AutoProce
     > selected_ids = [I[i,j] for i, j in enumerate(J)]
     > assert tokenizer.batch_decode(selected_ids) == [''.join(x) for x in ground_truth]
     """
+    tok = processor if ppot.utils.is_tokenizer(processor) else processor.tokenizer
     # Tokens as strings (here we don't ignore special tokens, which might matter in the future).
-    S = [processor.tokenizer.batch_decode(x) for x in token_ids]
+    S = [tok.batch_decode(x) for x in token_ids]
     # Length of tokens.
     L = np.array([list(map(len, x)) for x in S])
     # Cumulative sums of lengths, which give the (end) position of the token.
@@ -62,24 +63,25 @@ def programs(token_ids: torch.LongTensor, logits: torch.FloatTensor,
     """
     # Get token positions.
     pos = get_token_pos(token_ids, processor, **kwargs)
+    tok = processor if ppot.utils.is_tokenizer(processor) else processor.tokenizer
 
     # Support preprocessing.
     if supp is None:
-        S = processor.tokenizer([str(i) for i in range(10)], return_tensors="pt").input_ids.flatten()
+        S = tok([str(i) for i in range(10)], return_tensors="pt").input_ids.flatten()
         supp = [[S for _ in pos[i]] for i in range(token_ids.shape[0])]
     elif torch.is_tensor(supp): supp = [[supp for _ in pos[i]] for i in range(token_ids.shape[0])]
 
     PP = []
 
     # Compute loglikelihoods.
-    M = torch.isin(token_ids, torch.tensor(processor.tokenizer.all_special_ids)) # special tokens
+    M = torch.isin(token_ids, torch.tensor(tok.all_special_ids)) # special tokens
     L = torch.log_softmax(logits, dim=-1) # logits from scores
     LL = torch.sum(L.gather(dim=-1, index=token_ids.unsqueeze(-1)).squeeze(-1).masked_fill_(M, 0.0), dim=-1)
     nLL = LL/torch.sum(torch.bitwise_not(M), dim=-1) # normalized loglikelihood
 
     for i, (T, P) in enumerate(zip(token_ids, pos)):
         # Prepare code as a formatted string.
-        tokens = processor.batch_decode(T, skip_special_tokens=True)
+        tokens = tok.batch_decode(T, skip_special_tokens=True)
         for j, t in enumerate(tokens):
             tokens[j] = t.replace("{", "{{").replace("}", "}}")
         for j, p in enumerate(P):
@@ -91,9 +93,9 @@ def programs(token_ids: torch.LongTensor, logits: torch.FloatTensor,
         L_supp = [torch.log_softmax(L[i,p,x], dim=-1) for p, x in zip(P, supp[i])]
         if only_one:
             # Default values for RVs.
-            V_default = processor.tokenizer.batch_decode([x.item() for x in token_ids[i,P]])
-            PP.append(ppot.program.USPP(V_default, C, X, L_supp, supp[i], processor.tokenizer, code[i]))
-        else: PP.append(ppot.program.Program(C, X, L_supp, supp[i], processor.tokenizer, code[i]))
+            V_default = tok.batch_decode([x.item() for x in token_ids[i,P]])
+            PP.append(ppot.program.USPP(V_default, C, X, L_supp, supp[i], tok, code[i]))
+        else: PP.append(ppot.program.Program(C, X, L_supp, supp[i], tok, code[i]))
 
     return PP, nLL
 

@@ -1,5 +1,5 @@
-import multiprocessing, regex, os, pickle
-import dill, matplotlib.pyplot as plt, datasets
+import multiprocessing, regex, os, pickle, random, sys, contextlib, io, signal
+import dill, matplotlib.pyplot as plt, datasets, transformers, torch, torch.distributions
 import numpy as np
 from queue import Queue
 
@@ -152,3 +152,30 @@ def retrieve_programs(path: str, n: int) -> tuple:
 def is_tokenizer(o) -> bool:
     return isinstance(o, transformers.AutoTokenizer) or isinstance(o, transformers.tokenization_utils_base.PreTrainedTokenizerBase)
 
+def seed(s: int):
+    random.seed(s)
+    torch.manual_seed(s)
+    np.random.seed(s)
+
+def gumbel_on(device: str) -> torch.distributions.Distribution:
+    return torch.distributions.Gumbel(torch.tensor(0.).to(device), torch.tensor(1.).to(device))
+
+class DummyStream:
+    def write(self, _): pass
+    def flush(self, *args, **kwargs): pass
+@contextlib.contextmanager
+def no_stdout():
+    b = sys.stdout
+    sys.stdout = DummyStream()
+    yield
+    sys.stdout = b
+
+def timeout_handler(signum: signal.Signals, frame): raise TimeoutError("Triggered timeout")
+@contextlib.contextmanager
+def timeout(t: int):
+    if t <= 0: yield
+    else:
+        signal.signal(signal.SIGALRM, timeout_handler)
+        signal.alarm(t)
+        yield
+        signal.alarm(0)

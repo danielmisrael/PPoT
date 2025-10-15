@@ -94,7 +94,8 @@ def load(path: str) -> (torch.FloatTensor, torch.LongTensor, torch.FloatTensor):
 
 def html(H: torch.FloatTensor, I: torch.LongTensor, L: torch.FloatTensor,
          tokenizer: transformers.AutoTokenizer, toc_len: int = 0, instruction: str = None,
-         ground_truth_img: PIL.Image = None, **kwargs) -> list:
+         ground_truth_img: PIL.Image = None, ground_truth_text: str = None,
+         return_vals: list = None, **kwargs) -> list:
     T = [tokenizer.batch_decode(X) for X in I]
     body = ""
     H_norm = H/torch.max(H, dim=-1, keepdim=True).values
@@ -109,13 +110,17 @@ def html(H: torch.FloatTensor, I: torch.LongTensor, L: torch.FloatTensor,
     if instruction is not None: body += f"\n<h2>Instruction</h2>\n<p>{instruction}</p>\n<br><br>"
     if ground_truth_img is not None:
         body += f"\n<h2>Ground truth</h2>\n{embedd_image(ground_truth_img)}\n<br><br>"
+    if ground_truth_text is not None:
+        body += f"\n<h2>Ground truth</h2>\n{ground_truth_text}\n<br><br>"
     for i in range(H.shape[0]):
         body += f"\n<h2>Program  {i}</h2><br><hr><br>\n<pre>"
         for j in range(3, H.shape[1]):
             if stop[i,j] or T[i][j] == "```" or T[i][j] == "``": break
             body += html_token_format(T[i][j], palette.next(H_norm[i,j]), L_norm[i,j], tokenizer, **kwargs)
             if "\n" in T[i][j]: body += "\n"
-        body += "</pre>\n<br><hr><br>\n"
+        body += "</pre>\n<br>"
+        if return_vals is not None: body += f"Returned value: {return_vals[i]}"
+        body += "<hr><br>\n"
     body += HTML_TAIL
     return body
 

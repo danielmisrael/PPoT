@@ -29,6 +29,17 @@ class Program:
         if not self.homogenous: self.mapping = {x: p for x, p in zip(X, P)}
         self.raw_program = raw_program
         self.supp = [tokenizer.batch_decode(v) for v in V]
+        self.gumbel = Program.GUMBEL if device is None else ppot.utils.gumbel_on(device)
+        self.device = "cpu" if device is None else device
+
+    def to(self, device: str):
+        if device == self.device: return self
+        if self.homogenous:
+            self.P_tensor = self.P_tensor.to(device)
+        else:
+            for k in self.mapping: self.mapping[k] = self.mapping[k].to(device)
+        self.gumbel = ppot.utils.gumbel_on(device)
+        return self
 
     def sample_program(self, t: float = 1.0) -> str:
         "Returns a deterministic program sampled from this probabilistic program."
@@ -36,9 +47,9 @@ class Program:
         if math.isclose(t, 0.0): return self.greedy()
         # Sample values.
         if self.homogenous:
-            S = torch.argmax(torch.log_softmax(self.P_tensor/t, dim=-1)+Program.GUMBEL.sample(self.P_tensor.shape), dim=-1)
+            S = torch.argmax(torch.log_softmax(self.P_tensor/t, dim=-1)+self.gumbel.sample(self.P_tensor.shape), dim=-1).cpu()
         else:
-            S = (torch.argmax(torch.log_softmax(p/t, dim=-1)+Program.GUMBEL.sample(p.shape)) for p in self.mapping.values())
+            S = (torch.argmax(torch.log_softmax(p/t, dim=-1)+self.gumbel.sample(p.shape)) for p in self.mapping.values()).cpu()
         V = [self.supp[i][x.item()] for i, x in enumerate(S)]
         # Output code.
         return self.code.format(*V)
@@ -70,10 +81,10 @@ class USPP(Program):
         if self.deterministic: return self.code
         if t == 0.0: return self.greedy()
         # Assume a uniform prior.
-        X = random.randint(0, len(self.V)-1)
+        X = random.randint(0, len(self.supp)-1)
         # Sample only X.
         pr = self.P_tensor[X] if self.homogenous else self.mapping[X]
-        x = torch.argmax(torch.log_softmax(pr/t, dim=-1) + Program.GUMBEL.sample(pr.shape))
+        x = torch.argmax(torch.log_softmax(pr/t, dim=-1) + self.gumbel.sample(pr.shape))
         # Fix other values and insert x.
         V = self.V_default.copy()
         V[X] = self.supp[X][x]

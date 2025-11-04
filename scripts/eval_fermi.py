@@ -31,7 +31,7 @@ def expectation(P: ppot.program.Program, num_samples: int, log_transform: bool =
                 errs += v is None
                 if v is not None:
                     try: exp += math.log10(v) if log_transform else v
-                    except ValueError: errs += -math.inf
+                    except ValueError: errs += 1
         except TimeoutError: return torch.inf
     if errs == num_samples: return torch.inf
     try: return (10**exp if log_transform else exp)/(num_samples-errs)
@@ -98,7 +98,7 @@ def compute_scores(R_exp: list, R_llm: list, R_gt: torch.FloatTensor, stdout: bo
          "last ms_error(E_p[X])": E_exp[-1,1].item(), "last ms_error(score(LLM))": E_llm[-1,1].item(),
          "avg ms_error(E_p[X])": E_avg_exp[1].item(), "avg ms_error(score(LLM))": E_avg_llm[1].item(),
          "scores(E_p[X])": S_exp, "scores(LLM)": S_llm, "error(E_p[X])": E_exp,
-         "error(score(LLM))": E_llm,}
+         "error(score(LLM))": E_llm, "LLM": R_llm, "E_p[X]": R_exp}
     msg = ''
     for k, v in M.items(): msg += f"{k} = {v}\n"
     if stdout: print(msg)
@@ -124,6 +124,7 @@ if __name__ == "__main__":
     parser.add_argument("--program-temperature", type=float, default=1.0)
     parser.add_argument("--llm-cache-path", type=str, required=True)
     parser.add_argument("--uspp", default=False, action="store_true")
+    parser.add_argument("--sampling-device", type=str, default="cuda:0")
     args = parser.parse_args()
 
     ppot.utils.seed(args.seed)
@@ -143,6 +144,7 @@ if __name__ == "__main__":
     P_all = []
     pbar = tqdm.tqdm(D, desc="Example", dynamic_ncols=True)
     R_gt = torch.tensor(list(map(float, D["answer"])))
+    os.makedirs(args.llm_cache_path, exist_ok=True)
     for i, X in enumerate(pbar):
         saved_path = f"{args.llm_cache_path}/{i}.pkl"
         if os.path.isfile(saved_path):
@@ -154,7 +156,7 @@ if __name__ == "__main__":
         H = scripts.eval_entropy_programs.entropy(L)
         P, _ = ppot.compile.programs(I[:1,...], L[:1,...], tokenizer, S[:1], only_one=args.uspp)
         P_all.append(P[0])
-        R_exp.append(expectation(P[0].to(args.device), args.num_samples,
+        R_exp.append(expectation(P[0].to(args.sampling_device), args.num_samples,
                                  log_transform=args.log_transform,
                                  pp_temperature=args.program_temperature))
         R_llm.append(execute(S[0], timeout=args.timeout))
@@ -163,9 +165,11 @@ if __name__ == "__main__":
                                                   instruction=PROMPT(**X),
                                                   ground_truth_text=f"Expected answer: {X['answer']}",
                                                   return_vals=[R_llm[-1]])
+        os.makedirs(args.entropy_save_path, exist_ok=True)
         with open(f"{args.entropy_save_path}/{i}.html", "w") as f: f.write(html)
         pbar.set_postfix({"abs error diff (E-LLM)": m["avg abs_error(E_p[X])"]-m["avg abs_error(score(LLM))"],
                           "abs mse diff (E-LLM)": m["avg ms_error(E_p[X])"]-m["avg ms_error(score(LLM))"],})
     m, out_msg = compute_scores(R_exp, R_llm, R_gt, stdout=True, return_message=True)
+    os.makedirs(args.report_save_path, exist_ok=True)
     with open(f"{args.report_save_path}/report.pkl", "wb") as f: pickle.dump(m, f)
     with open(f"{args.report_save_path}/report.txt", "w") as f: f.write(out_msg)

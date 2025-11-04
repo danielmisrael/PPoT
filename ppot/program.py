@@ -76,6 +76,16 @@ class USPP(Program):
         self.V_default = V_default
         self.raw_program = raw_program
 
+    def greedy(self, as_list: bool = False) -> str:
+        "Returns the deterministic program output from the model"
+        if self.deterministic: return [self.code] if as_list else self.code
+        X = random.randint(0, len(self.supp)-1)
+        x = torch.argmax(self.P_tensor[X], dim=-1) if self.homogenous else torch.argmax(self.mapping[X]).item()
+        V = self.V_default.copy()
+        V[X] = self.supp[X][x]
+        r = self.code.format(*V)
+        return [r] if as_list else r
+
     def sample_program(self, t: float = 1.0) -> str:
         "Returns a deterministic program sampled from this probabilistic program."
         if self.deterministic: return self.code

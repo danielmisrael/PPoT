@@ -11,6 +11,7 @@ examples/
 *.pdf
 *.pickle
 *.model
+*.html
 
 tmp/
 

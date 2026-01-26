@@ -66,6 +66,7 @@ def programs(token_ids: torch.LongTensor, logits: torch.FloatTensor,
     tok = processor if ppot.utils.is_tokenizer(processor) else processor.tokenizer
 
     # Support preprocessing.
+    # breakpoint()
     if supp is None:
         S = tok([str(i) for i in range(10)], return_tensors="pt").input_ids.flatten()
         supp = [[S for _ in pos[i]] for i in range(token_ids.shape[0])]
@@ -82,9 +83,11 @@ def programs(token_ids: torch.LongTensor, logits: torch.FloatTensor,
     for i, (T, P) in enumerate(zip(token_ids, pos)):
         # Prepare code as a formatted string.
         tokens = tok.batch_decode(T, skip_special_tokens=True)
+        real_tokens = []
         for j, t in enumerate(tokens):
             tokens[j] = t.replace("{", "{{").replace("}", "}}")
         for j, p in enumerate(P):
+            real_tokens.append(tokens[p])
             tokens[p] = f"{{{j}}}" # turn it into an RV
         C = ppot.utils.remove_code_affixes(''.join(tokens))
         # Prepare random variable names as a list.
@@ -94,8 +97,8 @@ def programs(token_ids: torch.LongTensor, logits: torch.FloatTensor,
         if only_one:
             # Default values for RVs.
             V_default = tok.batch_decode([x.item() for x in token_ids[i,P]])
-            PP.append(ppot.program.USPP(V_default, C, X, L_supp, supp[i], tok, code[i]))
-        else: PP.append(ppot.program.Program(C, X, L_supp, supp[i], tok, code[i]))
+            PP.append(ppot.program.USPP(V_default, C, X, L_supp, supp[i], tok, code[i], real_tokens))
+        else: PP.append(ppot.program.Program(C, X, L_supp, supp[i], tok, code[i], real_tokens))
 
     return PP, nLL
 

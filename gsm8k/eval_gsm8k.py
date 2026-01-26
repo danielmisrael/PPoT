@@ -2,6 +2,8 @@ import argparse, json, os, math, numbers, pickle
 import transformers, datasets, torch, tqdm
 import ppot.utils, scripts.eval_entropy_programs, ppot.program, ppot.compile
 
+"""This file generates entropy pages for the dataset GSM8k"""
+
 def PROMPT(question: str = None, unit: str = None, **kwargs) -> str:
     return "Generate a Python function `compute_answer` with no arguments that computes the " \
     "needed calculations and returns a number as the answer to the problem below. There " \
@@ -32,10 +34,32 @@ def expectation(P: ppot.program.Program, num_samples: int, log_transform: bool =
                 if v is not None:
                     try: exp += math.log10(v) if log_transform else v
                     except ValueError: errs += 1
-        except TimeoutError: return torch.inf
-    if errs == num_samples: return torch.inf
-    try: return (10**exp if log_transform else exp)/(num_samples-errs)
-    except: return torch.inf
+        except TimeoutError: return None
+        # except TimeoutError: pass
+    if errs == num_samples: return None
+    return (10**exp if log_transform else exp)/(num_samples-errs)
+    # try: 
+    # except: return torch.inf
+
+def pass_at_k(P: ppot.program.Program, num_samples: int, gt: float, log_transform: bool = False,
+              timeout: int = 120, pp_temperature: float = 1.0, ignore: bool = False, **kwargs) -> bool:
+    if ignore: return torch.inf
+    S = P.sample(num_samples, as_list=True, t=pp_temperature)
+    if P.raw_program.replace("```python", "").replace("```", "") in S:
+        breakpoint()
+    raw_program = P.raw_program
+    S.append(raw_program)
+    ans_list = []
+    with ppot.utils.timeout(timeout):
+        try:
+            for i, p in enumerate(S):
+                v = execute(p, val_on_err = None, timeout=0, **kwargs)
+                ans_list.append(v)
+        except TimeoutError: return False
+    if gt in ans_list: 
+        return True, S, ans_list
+    else:
+        return False, S, ans_list
 
 def execute(P: str, val_on_err = torch.inf, timeout: float = 10) -> float:
     y, L, G = None, {}, {}
@@ -92,6 +116,9 @@ def compute_scores(R_exp: list, R_llm: list, R_gt: torch.FloatTensor, stdout: bo
     E_exp, E_llm = errors(R_exp, R_gt), errors(R_llm, R_gt)
     E_avg_exp, E_avg_llm = torch.nanmean(E_exp, dim=0), torch.nanmean(E_llm, dim=0)
 
+    # if torch.isinf(E_avg_exp).any():
+    #     breakpoint()
+
     M = {"last score(E_p[X])": S_exp[-1].item(), "last score(LLM)": S_llm[-1].item(),
          "avg score(E_p[X])": S_avg_exp, "avg score(LLM)": S_avg_llm,
          "last abs_error(E_p[X])": E_exp[-1,0].item(), "last abs_error(LLM)": E_llm[-1,0].item(),
@@ -143,20 +170,22 @@ if __name__ == "__main__":
     elif ext == ".json":
         with open(args.dataset, "r") as f:
             J = json.load(f)
-        D = datasets.Dataset.from_list(J)
+        D = datasets.Dataset.from_list(J[:args.num_examples])
     else:
         D = datasets.Dataset.load_from_disk(args.dataset)
-    breakpoint()
+
     R_exp, R_llm = [], []
+    pass_pp, pass_llm = [], []
     P_all = []
 
     # Dataset and ground truth answer
     pbar = tqdm.tqdm(D, desc="Example", dynamic_ncols=True)
-    R_gt = torch.tensor(list(map(float, D["answer"])))
+    R_gt = []
     os.makedirs(args.llm_cache_path, exist_ok=True)
 
     for i, X in enumerate(pbar):
         # Check if generation exists
+        gt = float(D["answer"][i])
         saved_path = f"{args.llm_cache_path}/{i}.pkl"
         if os.path.isfile(saved_path):
             with open(saved_path, "rb") as f: I, L, S = pickle.load(f)
@@ -164,13 +193,34 @@ if __name__ == "__main__":
             I, L, S = sample(model, tokenizer, X, args.num_llm_samples, temperature=args.temperature,
                              max_new_tokens=args.max_new_tokens)
             with open(saved_path, "wb") as f: pickle.dump((I, L, S), f)
+
         H = scripts.eval_entropy_programs.entropy(L)
+
         P, _ = ppot.compile.programs(I[:1,...], L[:1,...], tokenizer, S[:1], only_one=args.uspp)
         P_all.append(P[0])
-        R_exp.append(expectation(P[0].to(args.sampling_device), args.num_samples,
+
+        R_exp_current = expectation(P[0].to(args.sampling_device), args.num_samples,
                                  log_transform=args.log_transform,
-                                 pp_temperature=args.program_temperature))
-        R_llm.append(execute(S[0], timeout=args.timeout))
+                                 pp_temperature=args.program_temperature)
+        R_llm_current = execute(S[0], timeout=args.timeout, val_on_err=None)
+
+        if (R_exp_current is not None) and (R_llm_current is not None):
+            R_llm.append(R_llm_current)
+            R_exp.append(R_exp_current)
+            R_gt.append(gt)
+        else:
+            # breakpoint()
+            continue
+
+        pass_pp_current, S, ans_list = pass_at_k(P[0].to(args.sampling_device), args.num_samples, gt,
+                        log_transform=args.log_transform, pp_temperature=args.program_temperature)
+        pass_llm_current = torch.isclose(torch.tensor(gt), torch.tensor(R_llm_current, dtype=torch.float))
+        pass_pp.append(pass_pp_current)
+        pass_llm.append(pass_llm_current)
+        # if pass_pp_current and not pass_llm_current:
+        #     breakpoint()
+        #     pass
+
         m = compute_scores(R_exp, R_llm, R_gt, stdout=False)
         html = scripts.eval_entropy_programs.html(H, I, L, tokenizer, toc_len=len(D),
                                                   instruction=PROMPT(**X),
@@ -178,10 +228,18 @@ if __name__ == "__main__":
                                                     f"Probabilistic Program answer: {R_exp[-1]}")
                                                 #   return_vals=[R_llm[-1]])
         os.makedirs(args.entropy_save_path, exist_ok=True)
+        
         with open(f"{args.entropy_save_path}/{i}.html", "w") as f: f.write(html)
         pbar.set_postfix({"abs error diff (E-LLM)": m["avg abs_error(E_p[X])"]-m["avg abs_error(LLM)"],
                           "abs mse diff (E-LLM)": m["avg ms_error(E_p[X])"]-m["avg ms_error(LLM)"],})
+
+    pass_pp_rate = torch.mean(torch.tensor(pass_pp, dtype=torch.float))
+    pass_llm_rate = torch.mean(torch.tensor(pass_llm, dtype=torch.float))
+        
+    llm_pot_baseline_acc = torch.sum(torch.isclose(torch.tensor(R_llm, dtype=torch.float), torch.tensor(R_gt, dtype=torch.float)))
     m, out_msg = compute_scores(R_exp, R_llm, R_gt, stdout=True, return_message=True)
+    out_msg += f"llm_pot_baseline_Acc: {llm_pot_baseline_acc/len(R_llm)}\n" + f"Number of successful examples: {len(R_llm)}\n"
+    out_msg += f"pass rate for LLM: {pass_llm_rate}\n" + f"pass rate for probabilistic program: {pass_pp_rate}\n" 
     os.makedirs(args.report_save_path, exist_ok=True)
     with open(f"{args.report_save_path}/report.pkl", "wb") as f: pickle.dump(m, f)
     with open(f"{args.report_save_path}/report.txt", "w") as f: f.write(out_msg)

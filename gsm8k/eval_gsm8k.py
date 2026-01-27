@@ -45,8 +45,8 @@ def pass_at_k(P: ppot.program.Program, num_samples: int, gt: float, log_transfor
               timeout: int = 120, pp_temperature: float = 1.0, ignore: bool = False, **kwargs) -> bool:
     if ignore: return torch.inf
     S = P.sample(num_samples, as_list=True, t=pp_temperature)
-    if P.raw_program.replace("```python", "").replace("```", "") in S:
-        breakpoint()
+    if P.supp != []:
+        assert not P.raw_program.replace("```python", "").replace("```", "") in S
     raw_program = P.raw_program
     S.append(raw_program)
     ans_list = []
@@ -56,10 +56,11 @@ def pass_at_k(P: ppot.program.Program, num_samples: int, gt: float, log_transfor
                 v = execute(p, val_on_err = None, timeout=0, **kwargs)
                 ans_list.append(v)
         except TimeoutError: return False
-    if gt in ans_list: 
-        return True, S, ans_list
-    else:
-        return False, S, ans_list
+
+    for i in ans_list:
+        if math.isclose(i, gt):
+            return True, S, ans_list
+    return False, S, ans_list
 
 def execute(P: str, val_on_err = torch.inf, timeout: float = 10) -> float:
     y, L, G = None, {}, {}
@@ -153,6 +154,7 @@ if __name__ == "__main__":
     parser.add_argument("--llm-cache-path", type=str, required=True)
     parser.add_argument("--uspp", default=False, action="store_true")
     parser.add_argument("--sampling-device", type=str, default="cuda:0")
+    parser.add_argument("--rule", type=str, default="digits")
     args = parser.parse_args()
 
     ppot.utils.seed(args.seed)
@@ -161,7 +163,14 @@ if __name__ == "__main__":
     model = transformers.AutoModelForCausalLM.from_pretrained(args.model, torch_dtype="auto",
                                                               device_map=args.device)
     tokenizer = transformers.AutoTokenizer.from_pretrained(args.model)
-
+    # breakpoint()
+    # l = []
+    # for i in range(151643):
+    #     a = tokenizer.decode(i)
+    #     if "=" in a or "<" in a or ">" in a:
+    #         print(i, a)
+    #         l.append((i, a))
+    # breakpoint()
     # Load the data
     _, ext = os.path.splitext(args.dataset)
     if ext == ".jsonl":
@@ -183,8 +192,20 @@ if __name__ == "__main__":
     R_gt = []
     os.makedirs(args.llm_cache_path, exist_ok=True)
 
+    if args.rule == "digit":
+        rule = r"(?<!(?:[a-df-zA-DF-Z_][0-9]*)|(?:[eE][eE]+[0-9]*)|(?:#.*))([0-9])"
+        supp = None
+    elif args.rule == "compare":
+        rule = r"(?<!(<\||>\|))(<=|>=|<|>|==|!=)"
+        rule = r"(?<!\|)>|<(?!\|)|<=|>=|==|!="
+        supp = tokenizer(["<=", ">=", "==", ">", "<", "!=", " <=", " >=", " ==", " >", " <", " !="], return_tensors="pt").input_ids.flatten()
+    else:
+        rule = r"(?<!(?:[a-df-zA-DF-Z_][0-9]*)|(?:[eE][eE]+[0-9]*)|(?:#.*))([0-9])"
+        supp = None
+
     for i, X in enumerate(pbar):
-        # Check if generation exists
+        # if i < 272:
+        #     continue
         gt = float(D["answer"][i])
         saved_path = f"{args.llm_cache_path}/{i}.pkl"
         if os.path.isfile(saved_path):
@@ -196,7 +217,7 @@ if __name__ == "__main__":
 
         H = scripts.eval_entropy_programs.entropy(L)
 
-        P, _ = ppot.compile.programs(I[:1,...], L[:1,...], tokenizer, S[:1], only_one=args.uspp)
+        P, _ = ppot.compile.programs(I[:1,...], L[:1,...], tokenizer, S[:1], only_one=args.uspp, rule = rule, supp = supp)
         P_all.append(P[0])
 
         R_exp_current = expectation(P[0].to(args.sampling_device), args.num_samples,
@@ -217,9 +238,13 @@ if __name__ == "__main__":
         pass_llm_current = torch.isclose(torch.tensor(gt), torch.tensor(R_llm_current, dtype=torch.float))
         pass_pp.append(pass_pp_current)
         pass_llm.append(pass_llm_current)
-        # if pass_pp_current and not pass_llm_current:
-        #     breakpoint()
-        #     pass
+        if pass_pp_current and not pass_llm_current:
+            breakpoint()
+            pass
+
+        if pass_llm_current and not pass_pp_current:
+            breakpoint()
+            pass
 
         m = compute_scores(R_exp, R_llm, R_gt, stdout=False)
         html = scripts.eval_entropy_programs.html(H, I, L, tokenizer, toc_len=len(D),

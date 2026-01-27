@@ -65,7 +65,8 @@ class Program:
         logits_actual_value = []
         for k in sorted(mapping):
             v = mapping[k]
-            logits_actual_value.append(v[int(self.actual_values[k])])
+            key_in_logits = self.supp[k].index(self.actual_values[k])
+            logits_actual_value.append(v[key_in_logits])
         logits_actual_value = torch.tensor(logits_actual_value)
         log_cum_prod = torch.sum(logits_actual_value)
 
@@ -83,16 +84,21 @@ class Program:
                 log_odds = logits - torch.log(torch.max(torch.tensor(1e-9), -torch.expm1(logits)))
                 sample.append(torch.distributions.bernoulli.Bernoulli(logits=log_odds).sample())
                 independent = not sample[-1]
-        assert sample != [torch.tensor(True, dtype=torch.float) for i in range(len(sample))]
+
+        if len(sample) != 0:
+            assert sample != [torch.tensor(True, dtype=torch.float) for i in range(len(sample))]
 
         final_sample = []
         for i, change in enumerate(sample):
             if not change:
                 logits = deepcopy(mapping[i])
-                logits[int(self.actual_values[i])] = -torch.inf
+                key_in_logits = self.supp[i].index(self.actual_values[i])
+                # assert key_in_logits == int(self.actual_values[i])
+                logits[key_in_logits] = -torch.inf
                 final_sample.append(torch.argmax(torch.log_softmax(logits, dim=-1)+self.gumbel.sample()))
             else:
-                final_sample.append(int(self.actual_values[i]))
+                key_in_logits = self.supp[i].index(self.actual_values[i])
+                final_sample.append(key_in_logits)
         V = [self.supp[i][x] for i, x in enumerate(final_sample)]
         return self.code.format(*V)
 

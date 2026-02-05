@@ -55,7 +55,7 @@ def pass_at_k(P: ppot.program.Program, num_samples: int, gt: float, log_transfor
             for i, p in enumerate(S):
                 v = execute(p, val_on_err = None, timeout=0, **kwargs)
                 ans_list.append(v)
-        except TimeoutError: return False
+        except TimeoutError: return False, S, ans_list
 
     for i in ans_list:
         if i is not None:
@@ -239,11 +239,12 @@ if __name__ == "__main__":
                 tokenizer(["<=", ">=", "==", ">", "<", "!=", " <=", " >=", " ==", " >", " <", " !="], return_tensors="pt").input_ids.flatten()]
     elif args.rule == "all":
         rule = [r"(?<!(?:[a-df-zA-DF-Z_][0-9]*)|(?:[eE][eE]+[0-9]*)|(?:#.*))([0-9])", r"(?<!\|)>|<(?!\|)|<=|>=|==|!=", 
-                r"(?<!(?:#.*))([+\-\*/])(?![=/\*])|//|\*\*", r"[+\-\*/]=|//="]
+                r"(?<!(?:#.*))(?<!\()([+\-\*/])(?![=/\*])|//|\*\*", r"[+\-\*/]=|//=", r"\([+\-]"]
         supp = [tokenizer(["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"], return_tensors="pt").input_ids.flatten(), 
                 tokenizer(["<=", ">=", "==", ">", "<", "!=", " <=", " >=", " ==", " >", " <", " !="], return_tensors="pt").input_ids.flatten(),
                 tokenizer(["+", "-", "*", "/", "//", "**", " +", " -", " *", " /", " //", " **"], return_tensors="pt").input_ids.flatten(),
-                tokenizer(["+=", "-=", "*=", "/=", "//=", " +=", " -=", " *=", " /=", " //="], return_tensors="pt").input_ids.flatten()]
+                tokenizer(["+=", "-=", "*=", "/=", "//=", " +=", " -=", " *=", " /=", " //="], return_tensors="pt").input_ids.flatten(),
+                tokenizer(["(+", "(-"], return_tensors="pt").input_ids.flatten()]
     else:
         rule = [r"(?<!(?:[a-df-zA-DF-Z_][0-9]*)|(?:[eE][eE]+[0-9]*)|(?:#.*))([0-9])"]
         supp = [tokenizer(["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"], return_tensors="pt").input_ids.flatten()]
@@ -287,9 +288,10 @@ if __name__ == "__main__":
         pass_llm.append(pass_llm_current)
         if pass_pp_current and not pass_llm_current:
             score_samples = likelihood_evaluator(model, tokenizer, X, S)
-            if torch.argmax(torch.tensor(score_samples)) != torch.tensor(5):
-                # breakpoint()
-                pass
+            # if torch.argmax(torch.tensor(score_samples)) != torch.tensor(5):
+            #     # breakpoint()
+            #     pass
+            breakpoint()
 
         # if pass_llm_current and not pass_pp_current:
         #     breakpoint()

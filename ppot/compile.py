@@ -42,7 +42,7 @@ def get_token_pos(token_ids: torch.LongTensor, processor: transformers.AutoProce
 
 
 def programs(token_ids: torch.LongTensor, logits: torch.FloatTensor,
-             processor: transformers.AutoProcessor, code: str, supp: list = None, only_one: bool = False,
+             processor: transformers.AutoProcessor, code: str, rules: list = None, supp: list = None, only_one: bool = False,
              **kwargs) -> tuple:
     """
     Get probabilistic programs from the generated programs.
@@ -55,6 +55,8 @@ def programs(token_ids: torch.LongTensor, logits: torch.FloatTensor,
         supp: a list of torch.LongTensor containing the support (as token ids) of each random
             variable. If not given, assume digits; if supp is a one dimensional torch.LongTensor,
             then assume all variables have same support.
+        rules: a list of regex rules to match on
+        supp: a list of torch.LongTensor indicating support (as token ids) of corresponding to rules being matched.
         only_one: whether to limit to only one random variable. If so, returns a list of
             program.USPP instead of a list of program.Program.
     Returns:
@@ -62,15 +64,46 @@ def programs(token_ids: torch.LongTensor, logits: torch.FloatTensor,
         The normalized loglikelihood of each program
     """
     # Get token positions.
-    pos = get_token_pos(token_ids, processor, **kwargs)
+    if rules is None:
+        pos = get_token_pos(token_ids, processor, **kwargs)
+    else:
+        pos = []
+        for r in rules:
+            pos.append(get_token_pos(token_ids, processor, rule=r, **kwargs))
     tok = processor if ppot.utils.is_tokenizer(processor) else processor.tokenizer
+
+    # # Support preprocessing.
+    # # breakpoint()
+    # if supp is None:
+    #     S = tok([str(i) for i in range(10)], return_tensors="pt").input_ids.flatten()
+    #     supp = [[S for _ in pos[i]] for i in range(token_ids.shape[0])]
+    # elif torch.is_tensor(supp): supp = [[supp for _ in pos[i]] for i in range(token_ids.shape[0])]
+
+    
+    # tok = processor if ppot.utils.is_tokenizer(processor) else processor.tokenizer
 
     # Support preprocessing.
     # breakpoint()
-    if supp is None:
+    if supp is None: # if supp is None then make digits the support
         S = tok([str(i) for i in range(10)], return_tensors="pt").input_ids.flatten()
-        supp = [[S for _ in pos[i]] for i in range(token_ids.shape[0])]
-    elif torch.is_tensor(supp): supp = [[supp for _ in pos[i]] for i in range(token_ids.shape[0])]
+        supp = [[S for _ in pos[i]] for i in range(token_ids.shape[0])] # Make support for all positions collected.
+    elif torch.is_tensor(supp): # if supp is tensor then make it the support of all digits
+        supp = [[supp for _ in pos[i]] for i in range(token_ids.shape[0])]
+    else: # if supp is a list then it matches with the rules list
+        # breakpoint()
+        # TODO: The following code assumes single batch size
+        supp_extended = []
+        for index, positions in enumerate(pos):
+            current_supp = [supp[index] for _ in positions[0]]
+            supp_extended.extend(current_supp)
+        supp = [supp_extended]
+        # breakpoint()
+        positions = []
+        for i in pos:
+            positions.extend([j for j in i[0]])
+        pos = [positions]
+
+    # breakpoint()
 
     PP = []
 

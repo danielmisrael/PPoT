@@ -19,7 +19,7 @@ def template(tok: transformers.AutoTokenizer, X: dict) -> transformers.BatchEnco
                                      {"role": "user", "content": PROMPT(**X)}],
                                     tokenize=False, add_generation_prompt=True)
     else: raise NotImplementedError
-    return tokenizer([E], return_tensors="pt")
+    return E, tokenizer([E], return_tensors="pt")
 
 def expectation(P: ppot.program.Program, num_samples: int, log_transform: bool = False,
                 timeout: int = 120, pp_temperature: float = 1.0, ignore: bool = False, **kwargs) -> float:
@@ -58,8 +58,9 @@ def pass_at_k(P: ppot.program.Program, num_samples: int, gt: float, log_transfor
         except TimeoutError: return False
 
     for i in ans_list:
-        if math.isclose(i, gt):
-            return True, S, ans_list
+        if i is not None:
+            if math.isclose(i, gt):
+                return True, S, ans_list
     return False, S, ans_list
 
 def execute(P: str, val_on_err = torch.inf, timeout: float = 10) -> float:
@@ -96,7 +97,7 @@ def errors(x: list, y: list) -> torch.FloatTensor:
 
 def sample(model: transformers.AutoModelForCausalLM, tok: transformers.AutoTokenizer, X: dict,
            num_samples: int, temperature: float = None, **kwargs) -> (torch.LongTensor, torch.FloatTensor, list):
-    X = template(tok, X)
+    _, X = template(tok, X)
     if temperature == 0.0: temp_kwargs = {"do_sample": False, "num_return_sequences": 1}
     else: temp_kwargs = {"do_sample": True, "temperature": temperature, "num_return_sequences": num_samples}
     O = model.generate(**X.to(model.device), return_dict_in_generate=True, output_logits=True,
@@ -106,6 +107,34 @@ def sample(model: transformers.AutoModelForCausalLM, tok: transformers.AutoToken
     L = torch.concatenate(tuple(x.cpu() for x in O.logits),dim=-1).reshape(O.logits[0].shape[0], len(O.logits), -1)
     S = tok.batch_decode(I, skip_special_tokens=True)
     return I, L, S
+
+def likelihood_evaluator(model: transformers.AutoModelForCausalLM, tok: transformers.AutoTokenizer, X: dict,
+                        samples: list) -> list:
+    text, tokens = template(tok, X)
+    scores = []
+    for i in samples:
+        if "python" in i:
+            new_text = text + i
+        else:
+            new_text = text + "```python" + i + "```"
+        # breakpoint()
+        tokens = tok([new_text], return_tensors="pt")
+        tokens.to(model.device)
+        input_ids = tokens["input_ids"]
+        # Labels are the same as input_ids for causal language modeling l
+        # loss calculation
+        labels = input_ids.clone()
+
+        outputs = model(input_ids=input_ids, labels=labels)
+# `loss_type=None` was set in the config but it is unrecognized. Using the default loss: `ForCausalLMLoss`.
+
+        neg_log_likelihood = outputs.loss
+
+        seq_length = input_ids.shape[1]
+
+        total_nll = neg_log_likelihood * seq_length
+        scores.append(-total_nll)
+    return scores
 
 def compute_scores(R_exp: list, R_llm: list, R_gt: torch.FloatTensor, stdout: bool = False,
                    return_message: bool = False) -> dict:
@@ -193,15 +222,31 @@ if __name__ == "__main__":
     os.makedirs(args.llm_cache_path, exist_ok=True)
 
     if args.rule == "digit":
-        rule = r"(?<!(?:[a-df-zA-DF-Z_][0-9]*)|(?:[eE][eE]+[0-9]*)|(?:#.*))([0-9])"
-        supp = None
+        rule = [r"(?<!(?:[a-df-zA-DF-Z_][0-9]*)|(?:[eE][eE]+[0-9]*)|(?:#.*))([0-9])"]
+        supp = [tokenizer(["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"], return_tensors="pt").input_ids.flatten()]
     elif args.rule == "compare":
-        rule = r"(?<!(<\||>\|))(<=|>=|<|>|==|!=)"
-        rule = r"(?<!\|)>|<(?!\|)|<=|>=|==|!="
-        supp = tokenizer(["<=", ">=", "==", ">", "<", "!=", " <=", " >=", " ==", " >", " <", " !="], return_tensors="pt").input_ids.flatten()
+        rule = [r"(?<!\|)>|<(?!\|)|<=|>=|==|!="]
+        supp = [tokenizer(["<=", ">=", "==", ">", "<", "!=", " <=", " >=", " ==", " >", " <", " !="], return_tensors="pt").input_ids.flatten()]
+    elif args.rule == "arithmetic":
+        rule = [r"(?<!(?:#.*))([+\-\*/])(?![=/\*])|//|\*\*"]
+        supp = [tokenizer(["+", "-", "*", "/", "//", "**", " +", " -", " *", " /", " //", " **"], return_tensors="pt").input_ids.flatten()]
+    elif args.rule =="augment":
+        rule = [r"[+\-\*/]=|//="]
+        supp = [tokenizer(["+=", "-=", "*=", "/=", "//=", " +=", " -=", " *=", " /=", " //="], return_tensors="pt").input_ids.flatten()]
+    elif args.rule == "both":
+        rule = [r"(?<!(?:[a-df-zA-DF-Z_][0-9]*)|(?:[eE][eE]+[0-9]*)|(?:#.*))([0-9])", r"(?<!\|)>|<(?!\|)|<=|>=|==|!="]
+        supp = [tokenizer(["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"], return_tensors="pt").input_ids.flatten(), 
+                tokenizer(["<=", ">=", "==", ">", "<", "!=", " <=", " >=", " ==", " >", " <", " !="], return_tensors="pt").input_ids.flatten()]
+    elif args.rule == "all":
+        rule = [r"(?<!(?:[a-df-zA-DF-Z_][0-9]*)|(?:[eE][eE]+[0-9]*)|(?:#.*))([0-9])", r"(?<!\|)>|<(?!\|)|<=|>=|==|!=", 
+                r"(?<!(?:#.*))([+\-\*/])(?![=/\*])|//|\*\*", r"[+\-\*/]=|//="]
+        supp = [tokenizer(["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"], return_tensors="pt").input_ids.flatten(), 
+                tokenizer(["<=", ">=", "==", ">", "<", "!=", " <=", " >=", " ==", " >", " <", " !="], return_tensors="pt").input_ids.flatten(),
+                tokenizer(["+", "-", "*", "/", "//", "**", " +", " -", " *", " /", " //", " **"], return_tensors="pt").input_ids.flatten(),
+                tokenizer(["+=", "-=", "*=", "/=", "//=", " +=", " -=", " *=", " /=", " //="], return_tensors="pt").input_ids.flatten()]
     else:
-        rule = r"(?<!(?:[a-df-zA-DF-Z_][0-9]*)|(?:[eE][eE]+[0-9]*)|(?:#.*))([0-9])"
-        supp = None
+        rule = [r"(?<!(?:[a-df-zA-DF-Z_][0-9]*)|(?:[eE][eE]+[0-9]*)|(?:#.*))([0-9])"]
+        supp = [tokenizer(["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"], return_tensors="pt").input_ids.flatten()]
 
     for i, X in enumerate(pbar):
         # if i < 272:
@@ -217,7 +262,7 @@ if __name__ == "__main__":
 
         H = scripts.eval_entropy_programs.entropy(L)
 
-        P, _ = ppot.compile.programs(I[:1,...], L[:1,...], tokenizer, S[:1], only_one=args.uspp, rule = rule, supp = supp)
+        P, _ = ppot.compile.programs(I[:1,...], L[:1,...], tokenizer, S[:1], only_one=args.uspp, rules = rule, supp = supp)
         P_all.append(P[0])
 
         R_exp_current = expectation(P[0].to(args.sampling_device), args.num_samples,
@@ -235,16 +280,20 @@ if __name__ == "__main__":
 
         pass_pp_current, S, ans_list = pass_at_k(P[0].to(args.sampling_device), args.num_samples, gt,
                         log_transform=args.log_transform, pp_temperature=args.program_temperature)
+        # score_samples = likelihood_evaluator(model, tokenizer, X, S)
+        # breakpoint()
         pass_llm_current = torch.isclose(torch.tensor(gt), torch.tensor(R_llm_current, dtype=torch.float))
         pass_pp.append(pass_pp_current)
         pass_llm.append(pass_llm_current)
         if pass_pp_current and not pass_llm_current:
-            breakpoint()
-            pass
+            score_samples = likelihood_evaluator(model, tokenizer, X, S)
+            if torch.argmax(torch.tensor(score_samples)) != torch.tensor(5):
+                # breakpoint()
+                pass
 
-        if pass_llm_current and not pass_pp_current:
-            breakpoint()
-            pass
+        # if pass_llm_current and not pass_pp_current:
+        #     breakpoint()
+        #     pass
 
         m = compute_scores(R_exp, R_llm, R_gt, stdout=False)
         html = scripts.eval_entropy_programs.html(H, I, L, tokenizer, toc_len=len(D),

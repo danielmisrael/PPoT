@@ -61,7 +61,9 @@ class Program:
         if self.homogenous:
             mapping = {i: torch.log_softmax(self.P_tensor[i, :]/t, dim=-1) for i in range(self.P_tensor.shape[0])}
         else:
-            mapping = {k: torch.log_softmax(v/t, dim=-1) for k, v in self.mapping}
+            mapping = {}
+            for k in self.mapping:
+                mapping[k] = torch.log_softmax(self.mapping[k]/t, dim=-1)
         logits_actual_value = []
         for k in sorted(mapping):
             v = mapping[k]

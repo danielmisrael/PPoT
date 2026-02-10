@@ -7,10 +7,10 @@ import ppot.utils, scripts.eval_entropy_programs, ppot.program, ppot.compile
 def PROMPT(question: str = None, unit: str = None, **kwargs) -> str:
     return "Generate a Python function `compute_answer` with no arguments that computes the " \
     "needed calculations and returns a number as the answer to the problem below. There " \
-    "should be no comments in the code. Only generate the Python function `compute_answer`, " \
-    "with no explanations and no user input. The function should show intermediate computations " \
-    "in the program but without " \
-    f"any comments. \n\nProblem: {question}" + \
+    "should be no comments in the code and the program should provide constants in scientific " \
+    "notation. Only generate the Python function `compute_answer`, with no explanations and no " \
+    "user input. The function should show intermediate computations in the program but without " \
+        f"any comments. \n\nProblem: {question}" + \
         (f" The answer should be in the following unit of measurement: {unit}." if unit is not None else '')
 
 def template(tok: transformers.AutoTokenizer, X: dict) -> transformers.BatchEncoding:
@@ -22,10 +22,9 @@ def template(tok: transformers.AutoTokenizer, X: dict) -> transformers.BatchEnco
     return E, tokenizer([E], return_tensors="pt")
 
 def expectation(P: ppot.program.Program, num_samples: int, log_transform: bool = False,
-                timeout: int = 120, pp_temperature: float = 1.0, ignore: bool = False, 
-                diff_constraint=False, **kwargs) -> float:
+                timeout: int = 120, pp_temperature: float = 1.0, ignore: bool = False, **kwargs) -> float:
     if ignore: return torch.inf
-    S = P.sample(num_samples, as_list=True, t=pp_temperature, constraint=diff_constraint)
+    S = P.sample(num_samples, as_list=True, t=pp_temperature)
     exp, errs = 0, 0
     with ppot.utils.timeout(timeout):
         try:
@@ -43,12 +42,11 @@ def expectation(P: ppot.program.Program, num_samples: int, log_transform: bool =
     # except: return torch.inf
 
 def pass_at_k(P: ppot.program.Program, num_samples: int, gt: float, log_transform: bool = False,
-              timeout: int = 120, pp_temperature: float = 1.0, ignore: bool = False,
-              diff_constraint=False, **kwargs) -> bool:
+              timeout: int = 120, pp_temperature: float = 1.0, ignore: bool = False, **kwargs) -> bool:
     if ignore: return torch.inf
-    S = P.sample(num_samples, as_list=True, t=pp_temperature, constraint=diff_constraint)
-    if P.supp != []:
-        assert not P.raw_program.replace("```python", "").replace("```", "") in S
+    S = P.sample(num_samples, as_list=True, t=pp_temperature)
+    # if P.supp != []:
+    #     assert not P.raw_program.replace("```python", "").replace("```", "") in S
     raw_program = P.raw_program
     S.append(raw_program)
     ans_list = []
@@ -115,7 +113,6 @@ def likelihood_evaluator(model: transformers.AutoModelForCausalLM, tok: transfor
     text, tokens = template(tok, X)
     scores = []
     for i in samples:
-        
         if "python" in i:
             new_text = text + i
         else:
@@ -165,39 +162,7 @@ def compute_scores(R_exp: list, R_llm: list, R_gt: torch.FloatTensor, stdout: bo
     if stdout: print(msg)
     return (M, msg) if return_message else M
 
-def get_rule_supp(rule: str) -> tuple:
-    if rule == "digit":
-        rule_list = [r"(?<!(?:[a-df-zA-DF-Z_][0-9]*)|(?:[eE][eE]+[0-9]*)|(?:#.*))([0-9])"]
-        supp = [tokenizer(["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"], return_tensors="pt").input_ids.flatten()]
-    elif rule == "compare":
-        rule_list = [r"(?<!\|)>|<(?!\|)|<=|>=|==|!="]
-        supp = [tokenizer(["<=", ">=", "==", ">", "<", "!=", " <=", " >=", " ==", " >", " <", " !="], return_tensors="pt").input_ids.flatten()]
-    elif rule == "arithmetic":
-        rule_list = [r"(?<!(?:#.*))(?<!\()([+\-\*/])(?![=/\*])|//(?!=)|\*\*"]
-        supp = [tokenizer(["+", "-", "*", "/", "//", "**", " +", " -", " *", " /", " //", " **"], return_tensors="pt").input_ids.flatten()]
-    elif rule =="augment":
-        rule_list = [r"[+\-\*/]=|//="]
-        supp = [tokenizer(["+=", "-=", "*=", "/=", "//=", " +=", " -=", " *=", " /=", " //="], return_tensors="pt").input_ids.flatten()]
-    elif rule == "both":
-        rule_list = [r"(?<!(?:[a-df-zA-DF-Z_][0-9]*)|(?:[eE][eE]+[0-9]*)|(?:#.*))([0-9])", r"(?<!\|)>|<(?!\|)|<=|>=|==|!="]
-        supp = [tokenizer(["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"], return_tensors="pt").input_ids.flatten(), 
-                tokenizer(["<=", ">=", "==", ">", "<", "!=", " <=", " >=", " ==", " >", " <", " !="], return_tensors="pt").input_ids.flatten()]
-    elif rule == "all":
-        rule_list = [r"(?<!(?:[a-df-zA-DF-Z_][0-9]*)|(?:[eE][eE]+[0-9]*)|(?:#.*))([0-9])", r"(?<!\|)>|<(?!\|)|<=|>=|==|!=", 
-                r"(?<!(?:#.*))(?<!\()([+\-\*/])(?![=/\*])|//(?!=)|\*\*", r"[+\-\*/]=|//=", r"\([+\-]"]
-        supp = [tokenizer(["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"], return_tensors="pt").input_ids.flatten(), 
-                tokenizer(["<=", ">=", "==", ">", "<", "!=", " <=", " >=", " ==", " >", " <", " !="], return_tensors="pt").input_ids.flatten(),
-                tokenizer(["+", "-", "*", "/", "//", "**", " +", " -", " *", " /", " //", " **"], return_tensors="pt").input_ids.flatten(),
-                tokenizer(["+=", "-=", "*=", "/=", "//=", " +=", " -=", " *=", " /=", " //="], return_tensors="pt").input_ids.flatten(),
-                tokenizer(["(+", "(-"], return_tensors="pt").input_ids.flatten()]
-    else:
-        rule_list = [r"(?<!(?:[a-df-zA-DF-Z_][0-9]*)|(?:[eE][eE]+[0-9]*)|(?:#.*))([0-9])"]
-        supp = [tokenizer(["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"], return_tensors="pt").input_ids.flatten()]
-
-    return rule_list, supp
-
-
-SUPP_MODELS = ["Qwen/Qwen2.5-Coder-0.5B-Instruct", "Qwen/Qwen2.5-Coder-3B-Instruct", "Qwen/Qwen2.5-Coder-7B-Instruct"]
+SUPP_MODELS = ["Qwen/Qwen2.5-Coder-3B-Instruct", "Qwen/Qwen2.5-Coder-7B-Instruct"]
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -219,8 +184,6 @@ if __name__ == "__main__":
     parser.add_argument("--uspp", default=False, action="store_true")
     parser.add_argument("--sampling-device", type=str, default="cuda:0")
     parser.add_argument("--rule", type=str, default="digits")
-    parser.add_argument("--different-constraint", default=False, action="store_true")
-    parser.add_argument("--save-html", default=False, action="store_true")
     args = parser.parse_args()
 
     ppot.utils.seed(args.seed)
@@ -229,7 +192,14 @@ if __name__ == "__main__":
     model = transformers.AutoModelForCausalLM.from_pretrained(args.model, torch_dtype="auto",
                                                               device_map=args.device)
     tokenizer = transformers.AutoTokenizer.from_pretrained(args.model)
-
+    # breakpoint()
+    # l = []
+    # for i in range(151643):
+    #     a = tokenizer.decode(i)
+    #     if "=" in a or "<" in a or ">" in a:
+    #         print(i, a)
+    #         l.append((i, a))
+    # breakpoint()
     # Load the data
     _, ext = os.path.splitext(args.dataset)
     if ext == ".jsonl":
@@ -242,37 +212,63 @@ if __name__ == "__main__":
     else:
         D = datasets.Dataset.load_from_disk(args.dataset)
 
-    # Initialization
     R_exp, R_llm = [], []
     pass_pp, pass_llm = [], []
     P_all = []
 
-    # Dataset, creating directories, getting rules
+    # Dataset and ground truth answer
     pbar = tqdm.tqdm(D, desc="Example", dynamic_ncols=True)
     R_gt = []
-    file_save_suffix = f"{args.temperature}"
-    os.makedirs(args.llm_cache_path + file_save_suffix, exist_ok=True)
-    rule, supp = get_rule_supp(args.rule)
-    
+    os.makedirs(args.llm_cache_path, exist_ok=True)
+
+    if args.rule == "digit":
+        rule = [r"(?<!(?:[a-df-zA-DF-Z_][0-9]*)|(?:[eE][eE]+[0-9]*)|(?:#.*))([0-9])"]
+        supp = [tokenizer(["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"], return_tensors="pt").input_ids.flatten()]
+    elif args.rule == "compare":
+        rule = [r"(?<!\|)>|<(?!\|)|<=|>=|==|!="]
+        supp = [tokenizer(["<=", ">=", "==", ">", "<", "!=", " <=", " >=", " ==", " >", " <", " !="], return_tensors="pt").input_ids.flatten()]
+    elif args.rule == "arithmetic":
+        rule = [r"(?<!(?:#.*))([+\-\*/])(?![=/\*])|//|\*\*"]
+        supp = [tokenizer(["+", "-", "*", "/", "//", "**", " +", " -", " *", " /", " //", " **"], return_tensors="pt").input_ids.flatten()]
+    elif args.rule =="augment":
+        rule = [r"[+\-\*/]=|//="]
+        supp = [tokenizer(["+=", "-=", "*=", "/=", "//=", " +=", " -=", " *=", " /=", " //="], return_tensors="pt").input_ids.flatten()]
+    elif args.rule == "both":
+        rule = [r"(?<!(?:[a-df-zA-DF-Z_][0-9]*)|(?:[eE][eE]+[0-9]*)|(?:#.*))([0-9])", r"(?<!\|)>|<(?!\|)|<=|>=|==|!="]
+        supp = [tokenizer(["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"], return_tensors="pt").input_ids.flatten(), 
+                tokenizer(["<=", ">=", "==", ">", "<", "!=", " <=", " >=", " ==", " >", " <", " !="], return_tensors="pt").input_ids.flatten()]
+    elif args.rule == "all":
+        rule = [r"(?<!(?:[a-df-zA-DF-Z_][0-9]*)|(?:[eE][eE]+[0-9]*)|(?:#.*))([0-9])", r"(?<!\|)>|<(?!\|)|<=|>=|==|!=", 
+                r"(?<!(?:#.*))(?<!\()([+\-\*/])(?![=/\*])|//|\*\*", r"[+\-\*/]=|//=", r"\([+\-]"]
+        supp = [tokenizer(["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"], return_tensors="pt").input_ids.flatten(), 
+                tokenizer(["<=", ">=", "==", ">", "<", "!=", " <=", " >=", " ==", " >", " <", " !="], return_tensors="pt").input_ids.flatten(),
+                tokenizer(["+", "-", "*", "/", "//", "**", " +", " -", " *", " /", " //", " **"], return_tensors="pt").input_ids.flatten(),
+                tokenizer(["+=", "-=", "*=", "/=", "//=", " +=", " -=", " *=", " /=", " //="], return_tensors="pt").input_ids.flatten(),
+                tokenizer(["(+", "(-"], return_tensors="pt").input_ids.flatten()]
+    else:
+        rule = [r"(?<!(?:[a-df-zA-DF-Z_][0-9]*)|(?:[eE][eE]+[0-9]*)|(?:#.*))([0-9])"]
+        supp = [tokenizer(["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"], return_tensors="pt").input_ids.flatten()]
+
     for i, X in enumerate(pbar):
-        gt = float(D["answer"][i])
-        saved_path = f"{args.llm_cache_path +file_save_suffix}/{i}.pkl"
-        if os.path.isfile(saved_path + file_save_suffix):
+        if i in [126, 151, 174, 195, 224, 233, 239, 331, 380, 390, 430, 443, 447, 461, 496, 504, 510, 522]:
+            continue
+        gt = float(D["answer"][i].split(" ")[0].strip("$").strip("N").strip("%").strip("L"))
+        saved_path = f"{args.llm_cache_path}/{i}.pkl"
+        if os.path.isfile(saved_path):
             with open(saved_path, "rb") as f: I, L, S = pickle.load(f)
         else:
             I, L, S = sample(model, tokenizer, X, args.num_llm_samples, temperature=args.temperature,
                              max_new_tokens=args.max_new_tokens)
             with open(saved_path, "wb") as f: pickle.dump((I, L, S), f)
 
-        if args.save_html:
-            H = scripts.eval_entropy_programs.entropy(L)
+        H = scripts.eval_entropy_programs.entropy(L)
 
         P, _ = ppot.compile.programs(I[:1,...], L[:1,...], tokenizer, S[:1], only_one=args.uspp, rules = rule, supp = supp)
         P_all.append(P[0])
 
         R_exp_current = expectation(P[0].to(args.sampling_device), args.num_samples,
                                  log_transform=args.log_transform,
-                                 pp_temperature=args.program_temperature, diff_constraint=args.different_constraint)
+                                 pp_temperature=args.program_temperature)
         R_llm_current = execute(S[0], timeout=args.timeout, val_on_err=None)
 
         if (R_exp_current is not None) and (R_llm_current is not None):
@@ -284,8 +280,7 @@ if __name__ == "__main__":
             continue
 
         pass_pp_current, S, ans_list = pass_at_k(P[0].to(args.sampling_device), args.num_samples, gt,
-                        log_transform=args.log_transform, pp_temperature=args.program_temperature, 
-                        diff_constraint=args.different_constraint)
+                        log_transform=args.log_transform, pp_temperature=args.program_temperature)
         # score_samples = likelihood_evaluator(model, tokenizer, X, S)
         # breakpoint()
         pass_llm_current = torch.isclose(torch.tensor(gt), torch.tensor(R_llm_current, dtype=torch.float))
@@ -296,7 +291,7 @@ if __name__ == "__main__":
             # if torch.argmax(torch.tensor(score_samples)) != torch.tensor(5):
             #     # breakpoint()
             #     pass
-            # breakpoint()
+            breakpoint()
 
         # if pass_llm_current and not pass_pp_current:
         #     breakpoint()
@@ -308,9 +303,9 @@ if __name__ == "__main__":
                                                   ground_truth_text=f"Expected answer: {X['answer']}, LLM answer: {R_llm[-1]}, " \
                                                     f"Probabilistic Program answer: {R_exp[-1]}")
                                                 #   return_vals=[R_llm[-1]])
-        os.makedirs(args.entropy_save_path + file_save_suffix, exist_ok=True)
+        os.makedirs(args.entropy_save_path, exist_ok=True)
         
-        # with open(f"{args.entropy_save_path + file_save_suffix}/{i}.html", "w") as f: f.write(html)
+        with open(f"{args.entropy_save_path}/{i}.html", "w") as f: f.write(html)
         pbar.set_postfix({"abs error diff (E-LLM)": m["avg abs_error(E_p[X])"]-m["avg abs_error(LLM)"],
                           "abs mse diff (E-LLM)": m["avg ms_error(E_p[X])"]-m["avg ms_error(LLM)"],})
 
@@ -321,6 +316,6 @@ if __name__ == "__main__":
     m, out_msg = compute_scores(R_exp, R_llm, R_gt, stdout=True, return_message=True)
     out_msg += f"llm_pot_baseline_Acc: {llm_pot_baseline_acc/len(R_llm)}\n" + f"Number of successful examples: {len(R_llm)}\n"
     out_msg += f"pass rate for LLM: {pass_llm_rate}\n" + f"pass rate for probabilistic program: {pass_pp_rate}\n" 
-    os.makedirs(args.report_save_path + file_save_suffix, exist_ok=True)
-    with open(f"{args.report_save_path + file_save_suffix}/report.pkl", "wb") as f: pickle.dump(m, f)
-    with open(f"{args.report_save_path + file_save_suffix}/report.txt", "w") as f: f.write(out_msg)
+    os.makedirs(args.report_save_path, exist_ok=True)
+    with open(f"{args.report_save_path}/report.pkl", "wb") as f: pickle.dump(m, f)
+    with open(f"{args.report_save_path}/report.txt", "w") as f: f.write(out_msg)

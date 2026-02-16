@@ -43,31 +43,35 @@ class Program:
         self.gumbel = ppot.utils.gumbel_on(device)
         return self
 
-    # def sample_program(self, t: float = 1.0) -> str:
-    #     "Returns a deterministic program sampled from this probabilistic program."
-    #     if self.deterministic: return self.code
-    #     if math.isclose(t, 0.0): return self.greedy()
-    #     # Sample values.
-    #     if self.homogenous:
-    #         S = torch.argmax(torch.log_softmax(self.P_tensor/t, dim=-1)+self.gumbel.sample(self.P_tensor.shape), dim=-1).cpu()
-    #     else:
-    #         S = (torch.argmax(torch.log_softmax(p/t, dim=-1)+self.gumbel.sample(p.shape)) for p in self.mapping.values()).cpu()
-    #     V = [self.supp[i][x.item()] for i, x in enumerate(S)]
-    #     # Output code.
-    #     return self.code.format(*V)
+    def sample_program(self, t: float = 1.0) -> str:
+        "Returns a deterministic program sampled from this probabilistic program."
+        if self.deterministic: return self.code
+        if math.isclose(t, 0.0): return self.greedy()
+        # Sample values.
+        if self.homogenous:
+            S = torch.argmax(torch.log_softmax(self.P_tensor/t, dim=-1)+self.gumbel.sample(self.P_tensor.shape), dim=-1).cpu()
+        else:
+            S = (torch.argmax(torch.log_softmax(p/t, dim=-1)+self.gumbel.sample(p.shape)) for p in self.mapping.values()).cpu()
+        V = [self.supp[i][x.item()] for i, x in enumerate(S)]
+        # Output code.
+        return self.code.format(*V)
     
-    def sample_program(self, t:float=1.0) -> str:
+    def sample_program_constraint(self, t:float=1.0) -> str:
         "Returns a deterministic program sampled from this probabilistic program conditioned on not being the same program"
+        # breakpoint()
         if self.homogenous:
             mapping = {i: torch.log_softmax(self.P_tensor[i, :]/t, dim=-1) for i in range(self.P_tensor.shape[0])}
         else:
             mapping = {}
             for k in self.mapping:
-                mapping[k] = torch.log_softmax(self.mapping[k]/t, dim=-1)
+                mapping[k] = torch.log_softmax(self.mapping[k]/t, dim=-1) - 1e-09
         logits_actual_value = []
         for k in sorted(mapping):
             v = mapping[k]
-            key_in_logits = self.supp[k].index(self.actual_values[k])
+            try:
+                key_in_logits = self.supp[k].index(self.actual_values[k])
+            except ValueError:
+                key_in_logits = 0
             logits_actual_value.append(v[key_in_logits])
         logits_actual_value = torch.tensor(logits_actual_value)
         log_cum_prod = torch.sum(logits_actual_value)
@@ -78,47 +82,46 @@ class Program:
         for i in range(logits_actual_value.shape[0]):
             if independent:
                 log_odds = logits_actual_value[i] - torch.log(torch.max(torch.tensor(1e-9), -torch.expm1(logits_actual_value[i])))
-                sample.append(torch.distributions.bernoulli.Bernoulli(logits=log_odds))
+                sample.append(torch.distributions.bernoulli.Bernoulli(logits=log_odds).sample())
             else:
                 Z = torch.log(torch.max(torch.tensor(1e-9), -torch.expm1(log_cum_prod)))
                 log_cum_prod -= logits_actual_value[i]
-                logits = logits_actual_value[i]+torch.log(torch.max(torch.tensor(1e-9), -torch.expm1(log_cum_prod)))-Z
+                logits = logits_actual_value[i]+torch.log(torch.max(torch.tensor(0.0), -torch.expm1(log_cum_prod)))-Z
                 log_odds = logits - torch.log(torch.max(torch.tensor(1e-9), -torch.expm1(logits)))
                 sample.append(torch.distributions.bernoulli.Bernoulli(logits=log_odds).sample())
                 independent = not sample[-1]
 
         if len(sample) != 0:
-            assert sample != [torch.tensor(True, dtype=torch.float) for i in range(len(sample))]
+            assert torch.any(torch.tensor(sample).to(torch.bool) != torch.tensor([True for i in range(len(sample))]))
 
         final_sample = []
         for i, change in enumerate(sample):
             if not change:
                 logits = deepcopy(mapping[i])
-                key_in_logits = self.supp[i].index(self.actual_values[i])
+                try:
+                    key_in_logits = self.supp[i].index(self.actual_values[i])
+                except:
+                    key_in_logits = 0
                 # assert key_in_logits == int(self.actual_values[i])
                 logits[key_in_logits] = -torch.inf
                 final_sample.append(torch.argmax(torch.log_softmax(logits, dim=-1)+self.gumbel.sample()))
             else:
-                key_in_logits = self.supp[i].index(self.actual_values[i])
+                try:
+                    key_in_logits = self.supp[i].index(self.actual_values[i])
+                except:
+                    key_in_logits = 0
                 final_sample.append(key_in_logits)
         V = [self.supp[i][x] for i, x in enumerate(final_sample)]
-        return self.code.format(*V)
+        final_result = self.code.format(*V)
+        if len(sample) != 0:
+            assert self.raw_program.replace("```python", "").replace("```", "") != final_result
+        return final_result
 
-        
-
-
-        
-
-        # compute the p values of the actual token
-        # compute 1-p
-        # sample true and false going through all the 
-        # change the logits accordingly
-        # gumbel sample
-
-    def sample(self, n: int = 1, as_list: bool = False, **kwargs) -> list:
+    def sample(self, n: int = 1, as_list: bool = False, constraint = False, **kwargs) -> list:
         "Returns n deterministic programs sampled from this probabilistic program."
-        return self.sample_program(**kwargs) if (n == 1) and (not as_list) else [self.sample_program(**kwargs) for _ in range(n)]
-        breakpoint()
+        sample_func = self.sample_program_constraint if constraint else self.sample_program
+        return sample_func(**kwargs) if (n == 1) and (not as_list) else [sample_func(**kwargs) for _ in range(n)]
+
     def greedy(self, as_list: bool = False) -> str:
         "Returns the deterministic program output from the model"
         if self.deterministic: return [self.code] if as_list else self.code

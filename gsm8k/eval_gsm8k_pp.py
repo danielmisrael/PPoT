@@ -22,27 +22,6 @@ def template(tok: transformers.AutoTokenizer, X: dict) -> transformers.BatchEnco
     else: raise NotImplementedError
     return E, tokenizer([E], return_tensors="pt")
 
-def expectation(P: ppot.program.Program, num_samples: int, log_transform: bool = False,
-                timeout: int = 120, pp_temperature: float = 1.0, ignore: bool = False, 
-                diff_constraint=False, **kwargs) -> float:
-    if ignore: return torch.inf
-    S = P.sample(num_samples, as_list=True, t=pp_temperature, constraint=diff_constraint)
-    exp, errs = 0, 0
-    with ppot.utils.timeout(timeout):
-        try:
-            for i, p in enumerate(S):
-                v = execute(p, val_on_err = None, timeout=0, **kwargs)
-                errs += v is None
-                if v is not None:
-                    try: exp += math.log10(v) if log_transform else v
-                    except ValueError: errs += 1
-        except TimeoutError: return None
-        # except TimeoutError: pass
-    if errs == num_samples: return None
-    return (10**exp if log_transform else exp)/(num_samples-errs)
-    # try: 
-    # except: return torch.inf
-
 def pass_at_k_llm(S: list, timeout: int, gt: float) -> bool:
     for i in S:
         try:
@@ -108,21 +87,6 @@ def execute(P: str, val_on_err = torch.inf, timeout: float = 10) -> float:
         except: y = val_on_err
     return y
 
-# Maybe have to take the expectation by transforming values to log_10 and then transform back.
-def scores(x: list, y: list) -> torch.FloatTensor:
-    "`x` is estimate, `y` is goal."
-    if not torch.is_tensor(x): x = torch.tensor(x)
-    if not torch.is_tensor(y): y = torch.tensor(y)
-    I = torch.isinf(x)
-    s = torch.max(torch.zeros(len(x)), 1.0-torch.abs(torch.log10(x/y))/3)
-    s[I] = 0.0
-    return s
-
-def errors(x: list, y: list) -> torch.FloatTensor:
-    if not torch.is_tensor(x): x = torch.tensor(x)
-    if not torch.is_tensor(y): y = torch.tensor(y)
-    return torch.concatenate((torch.abs(x-y).reshape(-1, 1), torch.sqrt(torch.abs(x*x-y*y)).reshape(-1, 1)), dim=-1)
-
 def sample(model: transformers.AutoModelForCausalLM, tok: transformers.AutoTokenizer, X: dict,
            num_samples: int, temperature: float = None, **kwargs) -> (torch.LongTensor, torch.FloatTensor, list):
     _, X = template(tok, X)
@@ -168,32 +132,6 @@ def likelihood_evaluator(model: transformers.AutoModelForCausalLM, tok: transfor
         total_nll = neg_log_likelihood * seq_length
         scores.append(-total_nll)
     return scores
-
-def compute_scores(R_exp: list, R_llm: list, R_gt: torch.FloatTensor, stdout: bool = False,
-                   return_message: bool = False) -> dict:
-    R_gt = R_gt[:len(R_exp)]
-    # breakpoint()
-    R_exp, R_llm = torch.tensor(R_exp, dtype=torch.float), torch.tensor(R_llm, dtype=torch.float)
-    S_exp, S_llm = scores(R_exp, R_gt), scores(R_llm, R_gt)
-    S_avg_exp, S_avg_llm = torch.nanmean(S_exp).item(), torch.nanmean(S_llm).item()
-    E_exp, E_llm = errors(R_exp, R_gt), errors(R_llm, R_gt)
-    E_avg_exp, E_avg_llm = torch.nanmean(E_exp, dim=0), torch.nanmean(E_llm, dim=0)
-
-    # if torch.isinf(E_avg_exp).any():
-    #     breakpoint()
-
-    M = {"last score(E_p[X])": S_exp[-1].item(), "last score(LLM)": S_llm[-1].item(),
-         "avg score(E_p[X])": S_avg_exp, "avg score(LLM)": S_avg_llm,
-         "last abs_error(E_p[X])": E_exp[-1,0].item(), "last abs_error(LLM)": E_llm[-1,0].item(),
-         "avg abs_error(E_p[X])": E_avg_exp[0].item(), "avg abs_error(LLM)": E_avg_llm[0].item(),
-         "last ms_error(E_p[X])": E_exp[-1,1].item(), "last ms_error(LLM)": E_llm[-1,1].item(),
-         "avg ms_error(E_p[X])": E_avg_exp[1].item(), "avg ms_error(LLM)": E_avg_llm[1].item(),
-         "scores(E_p[X])": S_exp, "scores(LLM)": S_llm, "error(E_p[X])": E_exp,
-         "error(score(LLM))": E_llm, "LLM": R_llm, "E_p[X]": R_exp}
-    msg = ''
-    for k, v in M.items(): msg += f"{k} = {v}\n"
-    if stdout: print(msg)
-    return (M, msg) if return_message else M
 
 def get_rule_supp(rule: str) -> tuple:
     if rule == "digit":
@@ -284,12 +222,10 @@ if __name__ == "__main__":
     os.makedirs(args.llm_cache_path + file_save_suffix, exist_ok=True)
     rule, supp = get_rule_supp(args.rule)
     
+    start = time.time()
     for i, X in enumerate(pbar):
-        # if i < 824:
-        #     continue
         gt = float(D["answer"][i])
         saved_path = f"{args.llm_cache_path +file_save_suffix}/{i}.pkl"
-        # breakpoint()
         if os.path.isfile(saved_path):
             with open(saved_path, "rb") as f: 
                 I, L, S = pickle.load(f)
@@ -297,12 +233,6 @@ if __name__ == "__main__":
         else:
             I, L, S = sample(model, tokenizer, X, args.num_llm_samples, temperature=args.temperature,
                              max_new_tokens=args.max_new_tokens)
-            # with open(saved_path, "wb") as f: pickle.dump((I, L, S), f)
-
-        # breakpoint()
-
-        if args.save_html:
-            H = scripts.eval_entropy_programs.entropy(L)
 
         # Trying to compile programs for the whole batch
         P, _ = ppot.compile.programs(I[:,...], L[:,...], tokenizer, S[:], only_one=args.uspp, rules = rule, supp = supp)
@@ -314,20 +244,16 @@ if __name__ == "__main__":
                         log_transform=args.log_transform, pp_temperature=args.program_temperature, 
                         diff_constraint=args.different_constraint)
         pass_pp.append(pass_pp_current)
-
-        if args.save_html:
-            html = scripts.eval_entropy_programs.html(H, I, L, tokenizer, toc_len=len(D),
-                                                  instruction=PROMPT(**X),
-                                                  ground_truth_text=f"Expected answer: {X['answer']}, LLM answer: {R_llm[-1]}, " \
-                                                    f"Probabilistic Program answer: {R_exp[-1]}")
-                                                #   return_vals=[R_llm[-1]])
-        os.makedirs(args.entropy_save_path + file_save_suffix, exist_ok=True)
         
         # with open(f"{args.entropy_save_path + file_save_suffix}/{i}.html", "w") as f: f.write(html)
         pass_pp_rate = torch.mean(torch.tensor(pass_pp, dtype=torch.float))
         pass_llm_rate = torch.mean(torch.tensor(pass_llm, dtype=torch.float))
         pbar.set_postfix({"pass_pp_rate": pass_pp_rate,
                           "pass_llm_rate": pass_llm_rate})
+        
+    end = time.time()
+    time_per_example = (end-start)/len(pass_llm)
+    with open(f"llm_time.csv", "a") as f: f.write(f"{args.num_llm_samples}, {time_per_example}\n")
         
     llm_pot_baseline_acc = torch.sum(torch.isclose(torch.tensor(R_llm, dtype=torch.float), torch.tensor(R_gt, dtype=torch.float)))
     # m, out_msg = compute_scores(R_exp, R_llm, R_gt, stdout=True, return_message=True)

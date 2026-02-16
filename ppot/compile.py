@@ -70,42 +70,29 @@ def programs(token_ids: torch.LongTensor, logits: torch.FloatTensor,
         pos = []
         for r in rules:
             pos.append(get_token_pos(token_ids, processor, rule=r, **kwargs))
+        pos = [list(row) for row in zip(*pos)]
     tok = processor if ppot.utils.is_tokenizer(processor) else processor.tokenizer
 
-    # # Support preprocessing.
-    # # breakpoint()
-    # if supp is None:
-    #     S = tok([str(i) for i in range(10)], return_tensors="pt").input_ids.flatten()
-    #     supp = [[S for _ in pos[i]] for i in range(token_ids.shape[0])]
-    # elif torch.is_tensor(supp): supp = [[supp for _ in pos[i]] for i in range(token_ids.shape[0])]
-
-    
-    # tok = processor if ppot.utils.is_tokenizer(processor) else processor.tokenizer
-
-    # Support preprocessing.
-    # breakpoint()
     if supp is None: # if supp is None then make digits the support
         S = tok([str(i) for i in range(10)], return_tensors="pt").input_ids.flatten()
         supp = [[S for _ in pos[i]] for i in range(token_ids.shape[0])] # Make support for all positions collected.
     elif torch.is_tensor(supp): # if supp is tensor then make it the support of all digits
         supp = [[supp for _ in pos[i]] for i in range(token_ids.shape[0])]
     else: # if supp is a list then it matches with the rules list
-        # breakpoint()
-        # TODO: The following code assumes single batch size
-        supp_extended = []
-        for index, positions in enumerate(pos):
-            current_supp = [supp[index] for _ in positions[0]]
-            supp_extended.extend(current_supp)
-        supp = [supp_extended]
-        # breakpoint()
-        positions = []
-        for i in pos:
-            positions.extend([j for j in i[0]])
-        pos = [positions]
-
-    # breakpoint()
+        joint_supp = []
+        joint_positions = []
+        for rule_pos in pos:
+            supp_extended = []
+            pos_extended = []
+            for index, positions in enumerate(rule_pos):
+                current_supp = [supp[index] for _ in positions]
+                supp_extended.extend(current_supp)
+                pos_extended.extend(positions)
+            joint_supp.append(supp_extended)
+            joint_positions.append(pos_extended)
 
     PP = []
+    pos, supp = joint_positions, joint_supp
 
     # Compute loglikelihoods.
     M = torch.isin(token_ids, torch.tensor(tok.all_special_ids)) # special tokens

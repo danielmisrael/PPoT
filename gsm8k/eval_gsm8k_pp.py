@@ -41,10 +41,7 @@ def pass_at_k(P: list, num_samples: int, gt: float, log_transform: bool = False,
     if ignore: return torch.inf
     S = []
     for i in P:
-        start = time.time()
         programs = i.sample(num_samples, as_list=True, t=pp_temperature, constraint=diff_constraint)
-        end = time.time()
-        # print(f"Time taken to sample 5 programs from the probabilistic program: {end - start}")
         if i.supp != []:
             assert not i.raw_program.replace("```python", "").replace("```", "") in programs
         S.extend(programs)
@@ -222,28 +219,36 @@ if __name__ == "__main__":
     os.makedirs(args.llm_cache_path + file_save_suffix, exist_ok=True)
     rule, supp = get_rule_supp(args.rule)
     
-    start = time.time()
+    total_time = 0
     for i, X in enumerate(pbar):
         gt = float(D["answer"][i])
         saved_path = f"{args.llm_cache_path +file_save_suffix}/{i}.pkl"
-        if os.path.isfile(saved_path):
-            with open(saved_path, "rb") as f: 
-                I, L, S = pickle.load(f)
-                I, L, S = I[:args.num_llm_samples, ...], L[:args.num_llm_samples, ...], S[:args.num_llm_samples] 
-        else:
-            I, L, S = sample(model, tokenizer, X, args.num_llm_samples, temperature=args.temperature,
-                             max_new_tokens=args.max_new_tokens)
+
+        start = time.time()
+        I, L, S = sample(model, tokenizer, X, args.num_llm_samples, temperature=args.temperature,
+                            max_new_tokens=args.max_new_tokens)
 
         # Trying to compile programs for the whole batch
         P, _ = ppot.compile.programs(I[:,...], L[:,...], tokenizer, S[:], only_one=args.uspp, rules = rule, supp = supp)
-        
+
+        S_pp = []
+        for j in P:
+            programs = j.sample(args.num_samples, as_list=True, t=args.pp_temperature, 
+                                constraint=args.different_constraint)
+            S_pp.extend(programs)
+            S_pp.append(j.raw_program)
+        end = time.time()
+        total_time += end - start
+
         pass_llm_current = pass_at_k_llm(S, timeout=args.timeout, gt=gt)
         pass_llm.append(pass_llm_current)
-
-        pass_pp_current, PPS, ans_list = pass_at_k([i.to(args.sampling_device) for i in P], args.num_samples, gt,
-                        log_transform=args.log_transform, pp_temperature=args.program_temperature, 
-                        diff_constraint=args.different_constraint)
+        pass_pp_current = pass_at_k_llm(S_pp, timeout=args.timeout, gt=gt)
         pass_pp.append(pass_pp_current)
+
+        # pass_pp_current, PPS, ans_list = pass_at_k([i.to(args.sampling_device) for i in P], args.num_samples, gt,
+        #                 log_transform=args.log_transform, pp_temperature=args.program_temperature, 
+        #                 diff_constraint=args.different_constraint)
+        # pass_pp.append(pass_pp_current)
         
         # with open(f"{args.entropy_save_path + file_save_suffix}/{i}.html", "w") as f: f.write(html)
         pass_pp_rate = torch.mean(torch.tensor(pass_pp, dtype=torch.float))
@@ -251,9 +256,8 @@ if __name__ == "__main__":
         pbar.set_postfix({"pass_pp_rate": pass_pp_rate,
                           "pass_llm_rate": pass_llm_rate})
         
-    end = time.time()
-    time_per_example = (end-start)/len(pass_llm)
-    with open(f"llm_time.csv", "a") as f: f.write(f"{args.num_llm_samples}, {time_per_example}\n")
+    time_per_example = (total_time)/len(pass_llm)
+    with open(f"pp_time_{args.model}_only_sampling.csv", "a") as f: f.write(f"{args.num_llm_samples}, {time_per_example}\n")
         
     llm_pot_baseline_acc = torch.sum(torch.isclose(torch.tensor(R_llm, dtype=torch.float), torch.tensor(R_gt, dtype=torch.float)))
     # m, out_msg = compute_scores(R_exp, R_llm, R_gt, stdout=True, return_message=True)

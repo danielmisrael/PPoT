@@ -148,7 +148,7 @@ if __name__ == "__main__":
 
     # Initialization
     R_exp, R_llm = [], []
-    pass_pp, pass_llm = [], []
+    pass_pp, pass_llm = [], [[] for i in range(20)]
     P_all = []
 
     # Dataset, creating directories, getting rules
@@ -158,32 +158,33 @@ if __name__ == "__main__":
     os.makedirs(args.llm_cache_path + file_save_suffix, exist_ok=True)
     rule, supp = get_rule_supp(args.rule)
     
-    total_time = 0
-    
+    start = time.time()
     for i, X in enumerate(pbar):
         gt = float(D["answer"][i])
         saved_path = f"{args.llm_cache_path +file_save_suffix}/{i}.pkl"
-        # if os.path.isfile(saved_path):
-        #     with open(saved_path, "rb") as f: 
-        #         I, L, S = pickle.load(f)
-        #         I, L, S = I[:args.num_llm_samples, ...], L[:args.num_llm_samples, ...], S[:args.num_llm_samples] 
-        # else:
-        start = time.time()
-        I, L, S = sample(model, tokenizer, X, args.num_llm_samples, temperature=args.temperature,
-                            max_new_tokens=args.max_new_tokens)
-        end = time.time()
-        total_time += end - start
+        if os.path.isfile(saved_path):
+            with open(saved_path, "rb") as f: 
+                I, L, S = pickle.load(f)
+                I, L, S = I[:args.num_llm_samples, ...], L[:args.num_llm_samples, ...], S[:args.num_llm_samples] 
+        else:
+            I, L, S = sample(model, tokenizer, X, args.num_llm_samples, temperature=args.temperature,
+                             max_new_tokens=args.max_new_tokens)
 
-        pass_llm_current = pass_at_k_llm(S, timeout=args.timeout, gt=gt)
-        pass_llm.append(pass_llm_current)
-        pass_llm_rate = torch.mean(torch.tensor(pass_llm, dtype=torch.float))
+        for j in range(1, 21):
+            pass_llm_current = pass_at_k_llm(S[:j], timeout=args.timeout, gt=gt)
+            pass_llm[j-1].append(pass_llm_current)
+            pass_llm_rate = torch.mean(torch.tensor(pass_llm[19], dtype=torch.float))
         pbar.set_postfix({"pass_llm_rate": pass_llm_rate})
         
-    
-    time_per_example = (total_time)/len(pass_llm)
+    end = time.time()
+    time_per_example = (end-start)/len(pass_llm)
     print(len(pass_llm))
-    with open(f"llm_time_{args.model}_only_sampling.csv", "a") as f: f.write(f"{args.num_llm_samples}, {time_per_example}\n")
-        
+    # with open(f"llm_time_{args.model}.csv", "a") as f: f.write(f"{args.num_llm_samples}, {time_per_example}\n")
+
+    with open(f"llm_accuracy_{args.model}.csv", "a") as f:
+        for i in range(1, 21):
+            f.write(f"{i}, {torch.mean(torch.tensor(pass_llm[i-1], dtype=torch.float))}")
+
     llm_pot_baseline_acc = torch.sum(torch.isclose(torch.tensor(R_llm, dtype=torch.float), torch.tensor(R_gt, dtype=torch.float)))
     # m, out_msg = compute_scores(R_exp, R_llm, R_gt, stdout=True, return_message=True)
     out_msg = ""

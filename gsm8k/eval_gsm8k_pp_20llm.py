@@ -3,7 +3,8 @@ import transformers, datasets, torch, tqdm
 import ppot.utils, scripts.eval_entropy_programs, ppot.program, ppot.compile
 import time
 
-"""This file generates entropy pages for the dataset GSM8k"""
+"""This file generates less than or equal to 20 llm samples and 5 probabilistic programs and reports accuracy 
+for all of them"""
 
 def PROMPT(question: str = None, unit: str = None, **kwargs) -> str:
     return "Generate a Python function `compute_answer` with no arguments that computes the " \
@@ -35,6 +36,41 @@ def pass_at_k_llm(S: list, timeout: int, gt: float) -> bool:
             return True
     return False
 
+def pass_at_k(P: list, num_samples: int, gt: float, log_transform: bool = False,
+              timeout: int = 120, pp_temperature: float = 1.0, ignore: bool = False,
+              diff_constraint=False, **kwargs) -> bool:
+    if ignore: return torch.inf
+    S = []
+    for i in P:
+        start = time.time()
+        programs = i.sample(num_samples, as_list=True, t=pp_temperature, constraint=diff_constraint)
+        end = time.time()
+        # print(f"Time taken to sample 5 programs from the probabilistic program: {end - start}")
+        if i.supp != []:
+            assert not i.raw_program.replace("```python", "").replace("```", "") in programs
+        S.extend(programs)
+        S.append(i.raw_program)
+
+    ans_list = []
+    with ppot.utils.timeout(timeout):
+        try:
+            for i, p in enumerate(S):
+                v = execute(p, val_on_err = None, timeout=0, **kwargs)
+                ans_list.append(v)
+        except TimeoutError: pass
+
+    for index, i in enumerate(ans_list):
+        if i is not None:
+            try:
+                if math.isclose(i, gt):
+                    return True, S, ans_list, index
+            except OverflowError:
+                if math.isclose(gt%1, 0.0):
+                    if i == gt:
+                        return True, S, ans_list, index
+
+    return False, S, ans_list, len(S)
+
 def execute(P: str, val_on_err = torch.inf, timeout: float = 10) -> float:
     y, L, G = None, {}, {}
     try: start = P.index("```python")+9
@@ -58,16 +94,45 @@ def sample(model: transformers.AutoModelForCausalLM, tok: transformers.AutoToken
     if temperature == 0.0: temp_kwargs = {"do_sample": False, "num_return_sequences": 1}
     else: temp_kwargs = {"do_sample": True, "temperature": temperature, "num_return_sequences": num_samples}
     start = time.time()
-    O = model.generate(**X.to(model.device), return_dict_in_generate=False, output_logits=False,
+    O = model.generate(**X.to(model.device), return_dict_in_generate=True, output_logits=True,
                        repetition_penalty=1.0, top_p=1.0, **temp_kwargs, **kwargs)
     k = X.input_ids.numel()
-    I = O[:,k:].cpu()
+    I = O.sequences[:,k:].cpu()
     S = tok.batch_decode(I, skip_special_tokens=True)
 
-    # L = torch.concatenate(tuple(x.cpu() for x in O.logits),dim=-1).reshape(O.logits[0].shape[0], len(O.logits), -1)
+    L = torch.concatenate(tuple(x.cpu() for x in O.logits),dim=-1).reshape(O.logits[0].shape[0], len(O.logits), -1)
     end = time.time()
     # print(f"Time taken to generate {num_samples} samples: {end - start}")
-    return I, S, S
+    return I, L, S
+
+def likelihood_evaluator(model: transformers.AutoModelForCausalLM, tok: transformers.AutoTokenizer, X: dict,
+                        samples: list) -> list:
+    text, tokens = template(tok, X)
+    scores = []
+    for i in samples:
+        
+        if "python" in i:
+            new_text = text + i
+        else:
+            new_text = text + "```python" + i + "```"
+        # breakpoint()
+        tokens = tok([new_text], return_tensors="pt")
+        tokens.to(model.device)
+        input_ids = tokens["input_ids"]
+        # Labels are the same as input_ids for causal language modeling l
+        # loss calculation
+        labels = input_ids.clone()
+
+        outputs = model(input_ids=input_ids, labels=labels)
+# `loss_type=None` was set in the config but it is unrecognized. Using the default loss: `ForCausalLMLoss`.
+
+        neg_log_likelihood = outputs.loss
+
+        seq_length = input_ids.shape[1]
+
+        total_nll = neg_log_likelihood * seq_length
+        scores.append(-total_nll)
+    return scores
 
 def get_rule_supp(rule: str) -> tuple:
     if rule == "digit":
@@ -148,7 +213,7 @@ if __name__ == "__main__":
 
     # Initialization
     R_exp, R_llm = [], []
-    pass_pp, pass_llm = [], []
+    pass_pp, pass_llm = [[] for i in range(20)], []
     P_all = []
 
     # Dataset, creating directories, getting rules
@@ -158,8 +223,6 @@ if __name__ == "__main__":
     os.makedirs(args.llm_cache_path + file_save_suffix, exist_ok=True)
     rule, supp = get_rule_supp(args.rule)
     
-    total_time = 0
-    
     for i, X in enumerate(pbar):
         gt = float(D["answer"][i])
         saved_path = f"{args.llm_cache_path +file_save_suffix}/{i}.pkl"
@@ -168,27 +231,31 @@ if __name__ == "__main__":
         #         I, L, S = pickle.load(f)
         #         I, L, S = I[:args.num_llm_samples, ...], L[:args.num_llm_samples, ...], S[:args.num_llm_samples] 
         # else:
-        start = time.time()
         I, L, S = sample(model, tokenizer, X, args.num_llm_samples, temperature=args.temperature,
                             max_new_tokens=args.max_new_tokens)
-        end = time.time()
-        total_time += end - start
 
-        pass_llm_current = pass_at_k_llm(S, timeout=args.timeout, gt=gt)
-        pass_llm.append(pass_llm_current)
-        pass_llm_rate = torch.mean(torch.tensor(pass_llm, dtype=torch.float))
-        pbar.set_postfix({"pass_llm_rate": pass_llm_rate})
+        # Trying to compile programs for the whole batch
+        P, _ = ppot.compile.programs(I[:,...], L[:,...], tokenizer, S[:], only_one=args.uspp, rules = rule, supp = supp)
         
+        for j in range(1, 21):
+            pass_pp_current, PPS, ans_list, ans_index = pass_at_k([k.to(args.sampling_device) for k in P[:j]], 40, gt,
+                            log_transform=args.log_transform, pp_temperature=args.program_temperature, 
+                            diff_constraint=args.different_constraint)
+            pass_pp_current_index = [False for _ in range(ans_index)] + [True for _ in range(ans_index, 40)]
+            pass_pp[j-1] = pass_pp_current_index
+            pass_pp_rate = torch.mean(torch.tensor(pass_pp[0][0], dtype=torch.float))
+        pbar.set_postfix({"pass_pp_rate": pass_pp_rate})
     
-    time_per_example = (total_time)/len(pass_llm)
-    print(len(pass_llm))
-    with open(f"llm_time_{args.model}_only_sampling.csv", "a") as f: f.write(f"{args.num_llm_samples}, {time_per_example}\n")
-        
+    with open(f"pp_accuracy_{args.model}.csv", "a") as f:
+        for i in range(1, 21):
+            for j in range(1, 41):
+                f.write(f"{i}, {j}, {torch.mean(torch.tensor(pass_pp[i-1][j-1], dtype=torch.float))}\n")
+
     llm_pot_baseline_acc = torch.sum(torch.isclose(torch.tensor(R_llm, dtype=torch.float), torch.tensor(R_gt, dtype=torch.float)))
     # m, out_msg = compute_scores(R_exp, R_llm, R_gt, stdout=True, return_message=True)
     out_msg = ""
     out_msg += f"llm_pot_baseline_Acc: {llm_pot_baseline_acc/len(R_llm)}\n" + f"Number of successful examples: {len(R_llm)}\n"
-    out_msg += f"pass rate for LLM: {pass_llm_rate}\n" 
+    out_msg += f"pass rate for LLM: {pass_pp_rate}\n" + f"pass rate for probabilistic program: {pass_pp_rate}\n" 
     os.makedirs(args.report_save_path + file_save_suffix, exist_ok=True)
     # with open(f"{args.report_save_path + file_save_suffix}/report.pkl", "wb") as f: pickle.dump(f)
     with open(f"{args.report_save_path + file_save_suffix}/report.txt", "w") as f: f.write(out_msg)

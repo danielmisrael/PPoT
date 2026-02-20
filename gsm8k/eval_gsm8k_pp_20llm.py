@@ -213,7 +213,7 @@ if __name__ == "__main__":
 
     # Initialization
     R_exp, R_llm = [], []
-    pass_pp, pass_llm = [[] for i in range(20)], []
+    pass_pp, pass_llm = [[0 for j in range(40)] for i in range(20)], []
     P_all = []
 
     # Dataset, creating directories, getting rules
@@ -236,26 +236,53 @@ if __name__ == "__main__":
 
         # Trying to compile programs for the whole batch
         P, _ = ppot.compile.programs(I[:,...], L[:,...], tokenizer, S[:], only_one=args.uspp, rules = rule, supp = supp)
-        
-        for j in range(1, 21):
-            pass_pp_current, PPS, ans_list, ans_index = pass_at_k([k.to(args.sampling_device) for k in P[:j]], 40, gt,
-                            log_transform=args.log_transform, pp_temperature=args.program_temperature, 
-                            diff_constraint=args.different_constraint)
-            pass_pp_current_index = [False for _ in range(ans_index)] + [True for _ in range(ans_index, 40)]
-            pass_pp[j-1] = pass_pp_current_index
-            pass_pp_rate = torch.mean(torch.tensor(pass_pp[0][0], dtype=torch.float))
-        pbar.set_postfix({"pass_pp_rate": pass_pp_rate})
-    
+        P = [j.to(args.sampling_device) for j in P]
+        S_pp = []
+        for j in P:
+            programs = [j.raw_program]
+            programs.extend(j.sample(40, as_list=True, t=args.program_temperature, 
+                                constraint=args.different_constraint))
+            S_pp.append(programs)
+
+        ans_list = []
+        for l in S_pp:
+            current_ans_list = []
+            for program in l:
+                with ppot.utils.timeout(args.timeout):
+                    try: 
+                        v = execute(program, val_on_err = None, timeout=10)
+                        try:
+                            if math.isclose(v, gt):
+                                current_ans_list.append(True)
+                            else:
+                                current_ans_list.append(False)
+                        except OverflowError:
+                            current_ans_list.append(False)
+                        except TypeError:
+                            current_ans_list.append(False)
+                    except TimeoutError:
+                        current_ans_list.append(False)
+            ans_list.append(current_ans_list)
+
+        for j in range(1, args.num_llm_samples+1):
+            for k in range(1, 41):
+                answer = False
+                for l in ans_list[:j]:
+                    if True in l[:k+1]:
+                        answer = True
+                        break
+                pass_pp[j-1][k-1] = pass_pp[j-1][k-1] + (1 if answer else 0)
+
     with open(f"pp_accuracy_{args.model}.csv", "a") as f:
-        for i in range(1, 21):
+        for i in range(1, args.num_llm_samples+1):
             for j in range(1, 41):
-                f.write(f"{i}, {j}, {torch.mean(torch.tensor(pass_pp[i-1][j-1], dtype=torch.float))}\n")
+                f.write(f"{i}, {j}, {pass_pp[i-1][j-1]/1319}\n")
 
     llm_pot_baseline_acc = torch.sum(torch.isclose(torch.tensor(R_llm, dtype=torch.float), torch.tensor(R_gt, dtype=torch.float)))
     # m, out_msg = compute_scores(R_exp, R_llm, R_gt, stdout=True, return_message=True)
     out_msg = ""
     out_msg += f"llm_pot_baseline_Acc: {llm_pot_baseline_acc/len(R_llm)}\n" + f"Number of successful examples: {len(R_llm)}\n"
-    out_msg += f"pass rate for LLM: {pass_pp_rate}\n" + f"pass rate for probabilistic program: {pass_pp_rate}\n" 
+    # out_msg += f"pass rate for LLM: {pass_pp_rate}\n" + f"pass rate for probabilistic program: {pass_pp_rate}\n" 
     os.makedirs(args.report_save_path + file_save_suffix, exist_ok=True)
     # with open(f"{args.report_save_path + file_save_suffix}/report.pkl", "wb") as f: pickle.dump(f)
     with open(f"{args.report_save_path + file_save_suffix}/report.txt", "w") as f: f.write(out_msg)

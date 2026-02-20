@@ -223,17 +223,17 @@ if __name__ == "__main__":
     for i, X in enumerate(pbar):
         gt = float(D["answer"][i])
         saved_path = f"{args.llm_cache_path +file_save_suffix}/{i}.pkl"
-
         start = time.time()
         I, L, S = sample(model, tokenizer, X, args.num_llm_samples, temperature=args.temperature,
                             max_new_tokens=args.max_new_tokens)
 
         # Trying to compile programs for the whole batch
         P, _ = ppot.compile.programs(I[:,...], L[:,...], tokenizer, S[:], only_one=args.uspp, rules = rule, supp = supp)
+        P = [j.to(args.sampling_device) for j in P]
 
         S_pp = []
         for j in P:
-            programs = j.sample(args.num_samples, as_list=True, t=args.pp_temperature, 
+            programs = j.sample(args.num_samples, as_list=True, t=args.program_temperature, 
                                 constraint=args.different_constraint)
             S_pp.extend(programs)
             S_pp.append(j.raw_program)

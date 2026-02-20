@@ -15,18 +15,20 @@ for model_name in "${model_names[@]}"; do
     entropy_save_path="${BASE_DIR}/generations/pp/${model_name}/"
     report_save_path="${BASE_DIR}/generations/pp/${model_name}/"
     llm_cache_path="${BASE_DIR}/generations/pp/${model_name}/"
-    for i in {1..20} do
+    for i in {1..20}; do
         echo "Running: $model_name $i"
-        CUDA_VISIBLE_DEVICES=2 python3 -m gsm8k.eval_gsm8k_pp \
+        CUDA_VISIBLE_DEVICES=1 python3 -m gsm8k.eval_gsm8k_pp \
             --dataset gsm8k/gsm8k.json \
             --entropy-save-path "$entropy_save_path" \
             --report-save-path "$report_save_path" \
             --llm-cache-path "$llm_cache_path" \
             --model "$model_name" \
             --temperature 0.7 \
-            --num-samples 5 \
+            --num-samples 20 \
             --rule all \
-            --num-llm-samples $i
+            --num-llm-samples $i \
+            --num-examples 100 \
+            --different-constraint
     done
 done
 

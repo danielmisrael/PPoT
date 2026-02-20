@@ -5,9 +5,9 @@ BASE_DIR="/space/poorvagarg/genPPS/gsm8k"
 
 # Run names to evaluate (matching your generated predictions)
 model_names=(
-    # "Qwen/Qwen2.5-Coder-0.5B-Instruct"
-    "Qwen/Qwen2.5-Coder-3B-Instruct"
-    "Qwen/Qwen2.5-Coder-7B-Instruct"
+    "Qwen/Qwen2.5-Coder-0.5B-Instruct"
+    #"Qwen/Qwen2.5-Coder-3B-Instruct"
+    #"Qwen/Qwen2.5-Coder-7B-Instruct"
 )
 
 

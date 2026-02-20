@@ -122,3 +122,95 @@ def programs(token_ids: torch.LongTensor, logits: torch.FloatTensor,
 
     return PP, nLL
 
+
+def _get_answer_token_span(token_ids_single: torch.LongTensor, tokenizer,
+                           answer_extractor: callable) -> tuple:
+    """Map character-level answer boundaries to token positions.
+
+    Uses the same cumulative-length approach as get_token_pos():
+    1. Decode each token individually to get per-token strings
+    2. Compute cumulative character lengths
+    3. Use searchsorted to find token positions for char boundaries
+
+    Returns (start_token_idx, end_token_idx) as a half-open range.
+    """
+    tokens_as_strings = tokenizer.batch_decode(token_ids_single)
+    lengths = np.array([len(s) for s in tokens_as_strings])
+    cum_lengths = np.cumsum(lengths)
+    full_string = ''.join(tokens_as_strings)
+
+    start_char, end_char = answer_extractor(full_string)
+    if start_char is None:
+        return 0, len(token_ids_single)
+
+    start_tok = int(np.searchsorted(cum_lengths, start_char, side='right'))
+    end_tok = int(np.searchsorted(cum_lengths, end_char, side='left')) + 1
+    end_tok = min(end_tok, len(token_ids_single))
+    return start_tok, end_tok
+
+
+def subset_programs(token_ids: torch.LongTensor, logits: torch.FloatTensor,
+                    processor: transformers.AutoProcessor, strings: list = None,
+                    answer_extractor: callable = None) -> tuple:
+    """Create SubsetProgram objects from generated token sequences.
+
+    Inputs:
+        token_ids: torch.LongTensor of shape (batch_size, sequence_length)
+            -- the generated token ids (prompt already stripped).
+        logits: torch.FloatTensor of shape (batch_size, sequence_length, vocab_size)
+            -- the logits for each generated token position.
+        processor: the model's tokenizer or processor.
+        strings: optional list of pre-decoded strings.
+        answer_extractor: callable(decoded_string) -> (start_char, end_char)
+            that returns character-level boundaries of the answer expression.
+            If None, uses the entire sequence.
+    Returns:
+        A list of SubsetProgram objects (one per batch element).
+        Normalized log-likelihoods tensor.
+    """
+    tok = processor if ppot.utils.is_tokenizer(processor) else processor.tokenizer
+
+    # Compute normalized log-likelihoods (same as programs())
+    M = torch.isin(token_ids, torch.tensor(tok.all_special_ids))
+    L = torch.log_softmax(logits, dim=-1)
+    LL = torch.sum(
+        L.gather(dim=-1, index=token_ids.unsqueeze(-1)).squeeze(-1).masked_fill_(M, 0.0),
+        dim=-1)
+    non_special = torch.sum(torch.bitwise_not(M), dim=-1)
+    nLL = LL / torch.clamp(non_special, min=1)
+
+    PP = []
+    for i in range(token_ids.shape[0]):
+        # Strip padding/EOS tokens from the end
+        ids = token_ids[i]
+        pad_id = tok.pad_token_id if tok.pad_token_id is not None else tok.eos_token_id
+        if pad_id is not None:
+            non_pad = (ids != pad_id).nonzero(as_tuple=True)[0]
+            if len(non_pad) > 0:
+                end_pos = non_pad[-1].item() + 1
+            else:
+                end_pos = 0
+        else:
+            end_pos = len(ids)
+
+        ids_trimmed = ids[:end_pos]
+        logits_trimmed = logits[i, :end_pos, :]
+
+        if answer_extractor is not None and end_pos > 0:
+            start_tok, end_tok = _get_answer_token_span(
+                ids_trimmed, tok, answer_extractor)
+            answer_ids = ids_trimmed[start_tok:end_tok]
+            answer_logits = logits_trimmed[start_tok:end_tok, :]
+            answer_string = tok.decode(answer_ids)
+        else:
+            answer_ids = ids_trimmed
+            answer_logits = logits_trimmed
+            if strings is not None:
+                answer_string = strings[i]
+            else:
+                answer_string = tok.decode(answer_ids)
+
+        PP.append(ppot.program.SubsetProgram(
+            answer_logits, answer_ids.tolist(), tok, answer_string))
+
+    return PP, nLL

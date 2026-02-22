@@ -14,12 +14,12 @@ def PROMPT(question: str = None, unit: str = None, **kwargs) -> str:
     f"any comments. \n\nProblem: {question}"
 
 def template(tok: transformers.AutoTokenizer, X: dict) -> transformers.BatchEncoding:
-    if "Qwen2.5-Coder" in tokenizer.name_or_path:
+    if "Qwen2.5-Coder" in tok.name_or_path:
         E = tok.apply_chat_template([{"role": "system", "content": "You are Qwen, created by Alibaba Cloud. You are a helpful assistant."},
                                      {"role": "user", "content": PROMPT(**X)}],
                                     tokenize=False, add_generation_prompt=True)
     else: raise NotImplementedError
-    return E, tokenizer([E], return_tensors="pt")
+    return E, tok([E], return_tensors="pt")
 
 def sample_llm(model: transformers.AutoModelForCausalLM, tok: transformers.AutoTokenizer, X: dict,
            num_samples: int, temperature: float = None, output_logits = False, **kwargs) -> (torch.LongTensor, torch.FloatTensor, list):

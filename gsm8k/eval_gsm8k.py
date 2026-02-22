@@ -102,7 +102,7 @@ def get_rule_supp(rule: str, tokenizer: transformers.AutoTokenizer) -> tuple:
         rule_list.append(r"[+\-\*/]=|//=")
         supp.append(tokenizer(["+=", "-=", "*=", "/=", "//=", " +=", " -=", " *=", " /=", " //="], return_tensors="pt").input_ids.flatten())
     
-    if rule_list != []:
+    if rule_list == []:
         rule_list = [r"(?<!(?:[a-df-zA-DF-Z_][0-9]*)|(?:[eE][eE]+[0-9]*)|(?:#.*))([0-9])"]
         supp = [tokenizer(["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"], return_tensors="pt").input_ids.flatten()]
 

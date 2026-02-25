@@ -142,7 +142,7 @@ if __name__ == "__main__":
     parser.add_argument("--model", type=str, required=True, choices=SUPP_MODELS)
     parser.add_argument("--device", type=str, default="cuda:0")
     parser.add_argument("--num-llm-samples", type=int, default=5)
-    parser.add_argument("--num-samples", type=int, default=20,
+    parser.add_argument("--num-samples", type=int, default=5,
                         help="Number of subset resamples per LLM sample")
     parser.add_argument("--temperature", type=float, default=0.8)
     parser.add_argument("--program-temperature", type=float, default=1.0)

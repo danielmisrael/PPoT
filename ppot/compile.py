@@ -118,8 +118,10 @@ def programs(token_ids: torch.LongTensor, logits: torch.FloatTensor,
             # Default values for RVs.
             V_default = tok.batch_decode([x.item() for x in token_ids[i,P]])
             PP.append(ppot.program.USPP(V_default, C, X, L_supp, supp[i], tok, code[i], real_tokens))
-        else: PP.append(ppot.program.Program(C, X, L_supp, supp[i], tok, code[i], real_tokens))
+        else: PP.append(ppot.program.Program(C, X, L_supp, supp[i], tok, code[i], real_tokens, P))
 
+        PP[-1].probs(P, T.shape)
+        
     return PP, nLL
 
 

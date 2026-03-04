@@ -41,7 +41,8 @@ def evaluate_generations(generations : dict[str, list], mode):
     n_generations = len(all_scores[0]) if all_scores else 0
     k_values = [1, 5, n_generations]  # Common k values to compute
     k_values = [k for k in k_values if k <= n_generations]  # Only compute for valid k
-    
+    k_values = set(k_values)
+    # breakpoint()
     pass_at_k_scores = {f"pass_at_{k}": [] for k in k_values}
     
     for execution_result in all_scores:
@@ -97,6 +98,7 @@ if __name__ == "__main__":
     # Print all pass@k scores
     for key in sorted(results.keys()):
         if key.startswith("pass_at_"):
+            print(results[key])
             print(f"{key}: {round(results[key], 1)}")
     
     if args.scored_results_path != None:

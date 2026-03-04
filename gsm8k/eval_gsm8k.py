@@ -193,7 +193,7 @@ if __name__ == "__main__":
         pass_pp.append(pass_pp_current)
 
         if args.save_html:
-            html = scripts.eval_entropy_programs.html(H, I, L, tokenizer, toc_len=len(D),
+            html = scripts.eval_entropy_programs.html(P[0].entropy_ph.unsqueeze(0), I, L, tokenizer, toc_len=len(D),
                                                   instruction=PROMPT(**X),
                                                   ground_truth_text=f"Expected answer: {X['answer']}")
             with open(f"{entropy_save_path}/{i}.html", "w") as f: f.write(html)
@@ -205,4 +205,4 @@ if __name__ == "__main__":
         
     out_msg = f"Number of examples: {len(D)}"
     out_msg += f"pass rate for LLM: {pass_llm_rate}\n" + f"pass rate for probabilistic program: {pass_pp_rate}\n" 
-    with open(f"{report_save_path}/report.txt", "w") as f: f.write(out_msg)
+    # with open(f"{report_save_path}/report.txt", "w") as f: f.write(out_msg)

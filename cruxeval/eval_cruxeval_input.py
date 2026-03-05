@@ -1,4 +1,6 @@
-import argparse, json, os, time
+import os
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+import argparse, time
 import transformers, datasets, torch, tqdm
 import ppot.utils, ppot.program, ppot.compile
 from cruxeval.evaluation.utils_execute import check_correctness
@@ -34,11 +36,10 @@ def sample(model: transformers.AutoModelForCausalLM, tok: transformers.AutoToken
                        "num_return_sequences": num_samples}
         
     temp_kwargs.update({"repetition_penalty": 1.0,
-                        "top_p":0.95, "min_p":0.0, "seed":None, "stop_strings":['[/ANSWER]'],
-                        "max_new_tokens":769, 
-                        "logprobs":None, "prompt_logprobs":None,
-                        "truncate_prompt_tokens":None, "guided_decoding":None, 
-                        "extra_args":None, "tokenizer": tok})
+                        "top_p": 0.95,
+                        "stop_strings": ['[/ANSWER]'],
+                        "max_new_tokens": kwargs.pop("max_new_tokens", 769),
+                        "tokenizer": tok})
         
     # breakpoint()
 
@@ -166,8 +167,6 @@ if __name__ == "__main__":
     parser.add_argument("--timeout", type=int, default=3)
     parser.add_argument("--report-save-path", type=str, required=True)
     parser.add_argument("--different-constraint", default=False, action="store_true")
-    parser.add_argument("--skip-indices", type=str, default="162,342",
-                        help="Comma-separated indices to skip (known bad samples)")
     args = parser.parse_args()
 
     ppot.utils.seed(args.seed)
@@ -179,7 +178,6 @@ if __name__ == "__main__":
 
     # Load dataset
     dataset = datasets.load_dataset("cruxeval-org/cruxeval", split="test")
-    skip_indices = set(int(x) for x in args.skip_indices.split(",") if x)
 
     # Main loop
     pass_llm_list, pass_pp_list = [], []
@@ -187,13 +185,9 @@ if __name__ == "__main__":
     pbar = tqdm.tqdm(enumerate(dataset), total=min(args.num_examples, len(dataset)),
                      desc="CruxEval Input", dynamic_ncols=True)
 
-    generations = json.load(open("/space/poorvagarg/genPPS/cruxeval/model_generations/qwen2.5-coder-0.5b_temp0.0_input/generations.json", "r"))
-
     for i, example in pbar:
         if i >= args.num_examples:
             break
-        if i in skip_indices:
-            continue
 
         code = example["code"]
         expected_output = example["output"]

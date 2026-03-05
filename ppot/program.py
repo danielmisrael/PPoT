@@ -222,7 +222,6 @@ class SubsetProgram:
         self.raw_string = raw_string
         self.supp = []
         self.device = device or "cpu"
-        self.deterministic = len(target_tokens) <= 1
 
     def to(self, device: str):
         if device == self.device: return self
@@ -242,6 +241,14 @@ class SubsetProgram:
         Sampling proceeds sequentially, and tokens between the current position and
         where the sampled token is found get removed, so the result can be shorter.
         """
+        # For 3-token sequences [a, b, c] starting at i=1, the only sequence
+        # different from the original is [a, c] — handle it directly.
+        if atleastone_constraint and len(self.target_tokens) == 3:
+            return [self.target_tokens[0], self.target_tokens[2]]
+        # Sequences shorter than 3 tokens can't be made different; return as-is.
+        if len(self.target_tokens) < 3:
+            return self.target_tokens.copy()
+
         logits = self.logits
         if not isinstance(logits, torch.Tensor):
             logits = torch.tensor(logits, dtype=torch.float32)
@@ -279,8 +286,7 @@ class SubsetProgram:
             cumprod = torch.flip(
                 torch.cumprod(torch.flip(target_match_probs, [0]), dim=0), [0])
 
-        # i = 1  # Preserve first token
-        i = 2 # Skip first two tokens
+        i = 1  # Preserve first token; for CruxEval this keeps the leading 'f' of f(...)
         original_positions = list(range(seq_len))
         constraint_satisfied = (
             torch.isnan(cumprod).any() if cumprod is not None else True)
@@ -319,27 +325,20 @@ class SubsetProgram:
                                   + [original_positions[found_at]]
                                   + original_positions[found_at + 1:])
             i += 1
-        
-        if len(self.target_tokens) > 3:
-            assert new_tokens != self.target_tokens
 
+        if atleastone_constraint and new_tokens == self.target_tokens:
+            raise RuntimeError(f"atleastone_constraint failed (seq len {len(self.target_tokens)}): {self.target_tokens}")
         return new_tokens
 
     def sample_program(self, t: float = 1.0) -> str:
         "Returns a deterministic string sampled via subset resampling."
-        if self.deterministic: return self.raw_string
         new_tokens = self.resample_subset(temperature=t, atleastone_constraint=False)
         return self.tokenizer.decode(new_tokens)
 
     def sample_program_constraint(self, t: float = 1.0) -> str:
         "Returns a deterministic string sampled via subset resampling, guaranteed different."
-        if self.deterministic: return self.raw_string
         new_tokens = self.resample_subset(temperature=t, atleastone_constraint=True)
-        assert self.target_tokens[0] == 282
-        final_sample = self.tokenizer.decode(new_tokens)
-        if not self.deterministic and len(self.target_tokens) > 3:
-            assert final_sample != self.raw_string
-        return final_sample
+        return self.tokenizer.decode(new_tokens)
 
     def sample(self, n: int = 1, as_list: bool = False, constraint: bool = False,
                **kwargs) -> list:

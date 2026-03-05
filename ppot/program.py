@@ -202,7 +202,8 @@ class SubsetProgram:
         return self
 
     def resample_subset(self, temperature: float = 1.0,
-                        atleastone_constraint: bool = False) -> list:
+                        atleastone_constraint: bool = False,
+                        eps: float = 1e-7) -> list:
         """Resample the token sequence using suffix-masked sequential sampling.
 
         Ported from LogitsResampler.resample_subset() in
@@ -264,7 +265,7 @@ class SubsetProgram:
             if atleastone_constraint and not constraint_satisfied:
                 target_token_at_pos = self.target_tokens[original_pos]
                 future_cumprod = cumprod[original_pos + 1].item()
-                constraint_factor = 1.0 - future_cumprod + 1e-7
+                constraint_factor = 1.0 - future_cumprod + eps
                 token_probs[target_token_at_pos] = (
                     token_probs[target_token_at_pos] * constraint_factor)
 
@@ -280,7 +281,8 @@ class SubsetProgram:
                     found_at = j
                     break
 
-            if atleastone_constraint:
+            if atleastone_constraint and (
+                    sampled_token != self.target_tokens[original_pos] or found_at > i):
                 constraint_satisfied = True
 
             new_tokens = (new_tokens[:i] + [sampled_token]

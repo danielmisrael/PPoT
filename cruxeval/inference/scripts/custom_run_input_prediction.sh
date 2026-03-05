@@ -64,7 +64,7 @@ models=(
 )
 
 # temperatures=(0.2 0.8)
-temperatures=(0.2)
+temperatures=(0.8)
 
 # Create necessary directories
 mkdir -p slurm_logs

@@ -13,6 +13,7 @@ def template(tok: transformers.AutoTokenizer, code: str, output: str):
             [{"role": "system", "content": "You are Qwen, created by Alibaba Cloud. You are a helpful assistant."},
              {"role": "user", "content": prompt_text}],
             tokenize=False, add_generation_prompt=True)
+        E = prompt_text
     else:
         raise NotImplementedError(f"Chat template not implemented for {tok.name_or_path}")
     return E, tok([E], return_tensors="pt")
@@ -25,16 +26,27 @@ def sample(model: transformers.AutoModelForCausalLM, tok: transformers.AutoToken
 
     Returns (token_ids, logits, decoded_strings).
     """
-    _, X = template(tok, code, output)
+    X_str, X = template(tok, code, output)
     if temperature == 0.0:
         temp_kwargs = {"do_sample": False, "num_return_sequences": 1}
     else:
         temp_kwargs = {"do_sample": True, "temperature": temperature,
                        "num_return_sequences": num_samples}
+        
+    temp_kwargs.update({"repetition_penalty": 1.0,
+                        "top_p":0.95, "min_p":0.0, "seed":None, "stop_strings":['[/ANSWER]'],
+                        "max_new_tokens":769, 
+                        "logprobs":None, "prompt_logprobs":None,
+                        "truncate_prompt_tokens":None, "guided_decoding":None, 
+                        "extra_args":None, "tokenizer": tok})
+        
+    # breakpoint()
 
-    O = model.generate(**X.to(model.device), return_dict_in_generate=True,
-                       output_logits=True, repetition_penalty=1.0, top_p=1.0,
-                       **temp_kwargs, **kwargs)
+    # O = model.generate(**X.to(model.device), return_dict_in_generate=True,
+    #                    output_logits=True, repetition_penalty=1.0, top_p=1.0,
+    #                    **temp_kwargs, **kwargs)
+    
+    O = model.generate(**X.to(model.device), return_dict_in_generate=True, output_logits=True, **temp_kwargs)
 
     k = X.input_ids.numel()
     I = O.sequences[:, k:].cpu()
@@ -55,10 +67,10 @@ def postprocess_generation(text: str) -> str:
     Generation text looks like: 'assert f(ARGS) == OUTPUT'
     Returns the 'f(ARGS)' part.
     """
-    if "[ANSWER]" in text:
-        text = text.split("[ANSWER]")[1].strip()
-    if "[/ANSWER]" in text:
-        text = text.split("[/ANSWER]")[0].strip()
+    # if "[/ANSWER]" in text:
+    #     text = text.split("[/ANSWER]")[0].strip()
+    # if "[ANSWER]" in text:
+    #     text = text.split("[ANSWER]")[1].strip()
     if "==" in text:
         text = text.split("==")[0].strip()
     if "assert f" in text:
@@ -102,8 +114,10 @@ def evaluate_single(generation: str, code: str, expected_output: str,
 def pass_at_k_llm(S: list, code: str, expected_output: str,
                   timeout: int = 3) -> bool:
     """LLM baseline: returns True if any generation passes."""
+    # breakpoint()
     for s in S:
-        processed = postprocess_generation(s)
+        # processed = postprocess_generation(s)
+        processed = s
         if evaluate_single(processed, code, expected_output, timeout):
             return True
     return False
@@ -142,7 +156,7 @@ if __name__ == "__main__":
     parser.add_argument("--model", type=str, required=True, choices=SUPP_MODELS)
     parser.add_argument("--device", type=str, default="cuda:0")
     parser.add_argument("--num-llm-samples", type=int, default=5)
-    parser.add_argument("--num-samples", type=int, default=20,
+    parser.add_argument("--num-samples", type=int, default=5,
                         help="Number of subset resamples per LLM sample")
     parser.add_argument("--temperature", type=float, default=0.8)
     parser.add_argument("--program-temperature", type=float, default=1.0)
@@ -173,6 +187,8 @@ if __name__ == "__main__":
     pbar = tqdm.tqdm(enumerate(dataset), total=min(args.num_examples, len(dataset)),
                      desc="CruxEval Input", dynamic_ncols=True)
 
+    generations = json.load(open("/space/poorvagarg/genPPS/cruxeval/model_generations/qwen2.5-coder-0.5b_temp0.0_input/generations.json", "r"))
+
     for i, example in pbar:
         if i >= args.num_examples:
             break
@@ -189,6 +205,11 @@ if __name__ == "__main__":
                          max_new_tokens=args.max_new_tokens)
         total_time += time.time() - start
 
+        S = [postprocess_generation(s) for s in S]
+        # # if S[0] != generations[f"sample_{i}"][0]:
+        # #     breakpoint()
+        # S = generations[f"sample_{i}"]
+
         # Step 2: Evaluate LLM pass@k (baseline)
         pass_llm = pass_at_k_llm(S, code, expected_output, args.timeout)
         pass_llm_list.append(pass_llm)
@@ -198,13 +219,16 @@ if __name__ == "__main__":
             I, L, tokenizer,
             answer_extractor=cruxeval_input_answer_extractor)
 
-        # Step 4: Evaluate ppot pass@k
+        # # Step 4: Evaluate ppot pass@k
         pass_pp = pass_at_k_pp(
             P, args.num_samples, code, expected_output,
             pp_temperature=args.program_temperature,
             constraint=args.different_constraint,
             timeout=args.timeout)
         pass_pp_list.append(pass_pp)
+
+        # if not pass_llm and pass_pp:
+        #     breakpoint()
 
         # Update progress bar
         llm_rate = torch.mean(torch.tensor(pass_llm_list, dtype=torch.float))

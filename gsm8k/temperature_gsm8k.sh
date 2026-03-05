@@ -5,9 +5,9 @@ BASE_DIR="/space/poorvagarg/genPPS/gsm8k"
 
 # Run names to evaluate (matching your generated predictions)
 model_names=(
-    # "Qwen/Qwen2.5-Coder-0.5B-Instruct"
+    "Qwen/Qwen2.5-Coder-0.5B-Instruct"
     "Qwen/Qwen2.5-Coder-3B-Instruct"
-    # "Qwen/Qwen2.5-Coder-7B-Instruct"
+    "Qwen/Qwen2.5-Coder-7B-Instruct"
 )
 
 temp=(0.2 0.5 0.7 1.0)
@@ -18,7 +18,7 @@ for model_name in "${model_names[@]}"; do
     entropy_save_path="${BASE_DIR}/generations/${model_name}/"
     report_save_path="${BASE_DIR}/generations/${model_name}/"
     llm_cache_path="${BASE_DIR}/generations/${model_name}/"
-    CUDA_VISIBLE_DEVICES=0 python3 -m gsm8k.eval_gsm8k \
+    CUDA_VISIBLE_DEVICES=2 python3 -m gsm8k.eval_gsm8k \
         --dataset gsm8k/gsm8k.json \
         --entropy-save-path "$entropy_save_path" \
         --report-save-path "$report_save_path" \
@@ -38,7 +38,7 @@ for model_name in "${model_names[@]}"; do
         report_save_path="${BASE_DIR}/generations/${model_name}/"
         llm_cache_path="${BASE_DIR}/generations/${model_name}/"
 
-        CUDA_VISIBLE_DEVICES=0 python3 -m gsm8k.eval_gsm8k \
+        CUDA_VISIBLE_DEVICES=2 python3 -m gsm8k.eval_gsm8k \
             --dataset gsm8k/gsm8k.json \
             --entropy-save-path "$entropy_save_path" \
             --report-save-path "$report_save_path" \

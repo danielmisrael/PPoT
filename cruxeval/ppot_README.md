@@ -35,12 +35,13 @@ pip install accelerate
 ```
 cd inference
 ./scripts/custom_run_input_prediction.sh
-CUDA_VISIBLE_DEVICES=2 python3 extract_logits.py --generations_path ../model_generations/qwen2.5-coder-0.5b_temp0.8_input/generations.json --generations_raw_path ../model_generations_raw/qwen2.5-coder-0.5b_temp0.8_input/generations_raw.json --model_path Qwen/Qwen2.5-Coder-0.5B --output_dir ../model_generations/qwen2.5-coder-0.5b_temp0.8_input/data
+CUDA_VISIBLE_DEVICES=0 python3 extract_logits.py --generations_path ../model_generations/qwen2.5-coder-0.5b_temp0.8_input/generations.json --generations_raw_path ../model_generations_raw/qwen2.5-coder-0.5b_temp0.8_input/generations_raw.json --model_path Qwen/Qwen2.5-Coder-0.5B --output_dir ../model_generations/qwen2.5-coder-0.5b_temp0.8_input/data
 ```
 
 ```
 python3 resample_generations.py --n_resamples 5 --atleastone_constraint --output_path ../model_generations/qwen2.5-coder-0.5b_temp0.8_input/resample_generations.json
-
+cd ../evaluation
 python evaluate_generations.py     --generations_path ../model_generations/qwen2.5-coder-0.5b_temp0.8_input/resample_generations.json     --scored_results_path ../model_generations/qwen2.5-coder-0.5b_temp0.8_input/resample_generations_scored.json     --mode input
 ```
+
 

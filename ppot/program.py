@@ -9,7 +9,7 @@ class Program:
     GUMBEL = torch.distributions.gumbel.Gumbel(0, 1)
 
     def __init__(self, C: str, X: list, P: list, V: list, tokenizer: transformers.AutoTokenizer,
-                 raw_program: str, actual_values: list, device: str = None):
+                 raw_program: str, actual_values: list, pos: list, device: str = None):
         """Constructs a probabilistic program.
 
         Arguments:
@@ -33,6 +33,7 @@ class Program:
         self.gumbel = Program.GUMBEL if device is None else ppot.utils.gumbel_on(device)
         self.device = "cpu" if device is None else device
         self.actual_values = actual_values
+        self.tok_positions = pos
 
     def to(self, device: str):
         if device == self.device: return self
@@ -130,6 +131,34 @@ class Program:
         V = [self.supp[i][x.item()] for i, x in enumerate(S)]
         r = self.code.format(*V)
         return [r] if as_list else r
+    
+    def probs(self, pos: list, output_len: int):
+        t: float = 1.0
+        if self.homogenous:
+            mapping = {i: torch.log_softmax(self.P_tensor[i, :]/t, dim=-1) for i in range(self.P_tensor.shape[0])}
+        else:
+            mapping = {}
+            for k in self.mapping:
+                mapping[k] = torch.log_softmax(self.mapping[k]/t, dim=-1) - 1e-09
+        logits_actual_value = []
+        for k in sorted(mapping):
+            v = mapping[k]
+            try:
+                key_in_logits = self.supp[k].index(self.actual_values[k])
+            except ValueError:
+                key_in_logits = 0
+            logits_actual_value.append(v[key_in_logits])
+        logits_actual_value = torch.tensor(logits_actual_value)
+        log_cum_prod = torch.sum(logits_actual_value)
+        prob_change = torch.expm1(logits_actual_value)/torch.expm1(log_cum_prod)
+        # breakpoint()
+        # prob_change = prob_changetorch.logsumexp(prob_change, dim=-1)
+
+        entropy_ph = torch.zeros(output_len)
+        for idx, position in enumerate(pos):
+            entropy_ph[position] = prob_change[idx]
+        self.entropy_ph = entropy_ph
+
 
 class USPP(Program):
     "Union of Singleton Probabilistic Programs."
@@ -246,11 +275,12 @@ class SubsetProgram:
         cumprod = None
         if atleastone_constraint:
             target_match_probs = masked_probs[
-                torch.arange(seq_len, device=self.device), target_tokens_tensor]
+                pos_indices, target_tokens_tensor]
             cumprod = torch.flip(
                 torch.cumprod(torch.flip(target_match_probs, [0]), dim=0), [0])
 
-        i = 1  # Preserve first token
+        # i = 1  # Preserve first token
+        i = 2 # Skip first two tokens
         original_positions = list(range(seq_len))
         constraint_satisfied = (
             torch.isnan(cumprod).any() if cumprod is not None else True)
@@ -269,9 +299,7 @@ class SubsetProgram:
                 token_probs[target_token_at_pos] = (
                     token_probs[target_token_at_pos] * constraint_factor)
 
-            if token_probs.sum() > 1e-7:
-                token_probs = token_probs / token_probs.sum()
-
+            token_probs = token_probs / token_probs.sum()
             sampled_token = torch.multinomial(token_probs, num_samples=1).item()
 
             # Find where sampled token appears in future positions
@@ -291,6 +319,9 @@ class SubsetProgram:
                                   + [original_positions[found_at]]
                                   + original_positions[found_at + 1:])
             i += 1
+        
+        if len(self.target_tokens) > 3:
+            assert new_tokens != self.target_tokens
 
         return new_tokens
 
@@ -304,7 +335,11 @@ class SubsetProgram:
         "Returns a deterministic string sampled via subset resampling, guaranteed different."
         if self.deterministic: return self.raw_string
         new_tokens = self.resample_subset(temperature=t, atleastone_constraint=True)
-        return self.tokenizer.decode(new_tokens)
+        assert self.target_tokens[0] == 282
+        final_sample = self.tokenizer.decode(new_tokens)
+        if not self.deterministic and len(self.target_tokens) > 3:
+            assert final_sample != self.raw_string
+        return final_sample
 
     def sample(self, n: int = 1, as_list: bool = False, constraint: bool = False,
                **kwargs) -> list:

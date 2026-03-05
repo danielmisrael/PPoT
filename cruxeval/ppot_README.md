@@ -44,3 +44,4 @@ cd ../evaluation
 python evaluate_generations.py     --generations_path ../model_generations/qwen2.5-coder-0.5b_temp0.8_input/resample_generations.json     --scored_results_path ../model_generations/qwen2.5-coder-0.5b_temp0.8_input/resample_generations_scored.json     --mode input
 ```
 
+

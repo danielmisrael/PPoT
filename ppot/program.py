@@ -274,7 +274,7 @@ class SubsetProgram:
         cumprod = None
         if atleastone_constraint:
             target_match_probs = masked_probs[
-                torch.arange(seq_len, device=self.device), target_tokens_tensor]
+                pos_indices, target_tokens_tensor]
             cumprod = torch.flip(
                 torch.cumprod(torch.flip(target_match_probs, [0]), dim=0), [0])
 
@@ -294,14 +294,11 @@ class SubsetProgram:
             if atleastone_constraint and not constraint_satisfied:
                 target_token_at_pos = self.target_tokens[original_pos]
                 future_cumprod = cumprod[original_pos + 1].item()
-                constraint_factor = 1.0 - future_cumprod + 1e-21 # still very big
+                constraint_factor = 1.0 - future_cumprod + 1e-21
                 token_probs[target_token_at_pos] = (
                     token_probs[target_token_at_pos] * constraint_factor)
 
-            # if token_probs.sum() > 1e-7:
             token_probs = token_probs / token_probs.sum()
-            # breakpoint()
-            # print(token_probs)
             sampled_token = torch.multinomial(token_probs, num_samples=1).item()
 
             # Find where sampled token appears in future positions
@@ -310,9 +307,6 @@ class SubsetProgram:
                 if new_tokens[j] == sampled_token:
                     found_at = j
                     break
-
-            # if atleastone_constraint:
-                # constraint_satisfied = True
 
             if atleastone_constraint and found_at != i:
                 constraint_satisfied = True
@@ -339,11 +333,10 @@ class SubsetProgram:
         "Returns a deterministic string sampled via subset resampling, guaranteed different."
         if self.deterministic: return self.raw_string
         new_tokens = self.resample_subset(temperature=t, atleastone_constraint=True)
-        if self.target_tokens[0] != 282:
-            breakpoint()
+        assert self.target_tokens[0] == 282
         final_sample = self.tokenizer.decode(new_tokens)
-        if not self.deterministic and final_sample == self.raw_string and len(self.target_tokens) > 3:
-            breakpoint()
+        if not self.deterministic and len(self.target_tokens) > 3:
+            assert final_sample != self.raw_string
         return final_sample
 
     def sample(self, n: int = 1, as_list: bool = False, constraint: bool = False,

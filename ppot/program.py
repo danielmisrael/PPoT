@@ -231,7 +231,7 @@ class SubsetProgram:
 
     def resample_subset(self, temperature: float = 1.0,
                         atleastone_constraint: bool = False,
-                        eps: float = 1e-7) -> list:
+                        eps: float = 1e-21) -> list:
         """Resample the token sequence using suffix-masked sequential sampling.
 
         Ported from LogitsResampler.resample_subset() in

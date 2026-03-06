@@ -242,7 +242,8 @@ class SubsetProgram:
         where the sampled token is found get removed, so the result can be shorter.
         """
         # For 3-token sequences [a, b, c] starting at i=1, the only sequence
-        # different from the original is [a, c] — handle it directly.
+        # different from the original is [a, c] — handle it directly. 
+        # I don't agree with this, since the second token consists of the bracket
         if atleastone_constraint and len(self.target_tokens) == 3:
             return [self.target_tokens[0], self.target_tokens[2]]
         # Sequences shorter than 3 tokens can't be made different; return as-is.
@@ -286,7 +287,8 @@ class SubsetProgram:
             cumprod = torch.flip(
                 torch.cumprod(torch.flip(target_match_probs, [0]), dim=0), [0])
 
-        i = 1  # Preserve first token; for CruxEval this keeps the leading 'f' of f(...)
+        # i = 1  # Preserve first token; for CruxEval this keeps the leading 'f' of f(...)
+        i = 2 # Preserve first two tokens; for cruxeval needs first two tokens for f(
         original_positions = list(range(seq_len))
         constraint_satisfied = (
             torch.isnan(cumprod).any() if cumprod is not None else True)

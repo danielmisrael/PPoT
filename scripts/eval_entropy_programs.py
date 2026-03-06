@@ -15,7 +15,7 @@ class ColorPalette:
     def next(self, alpha: float = 0, fmt: str = HTML_FORMAT) -> str:
         # if alpha != 0.0:
         #     print(alpha)
-        r = fmt.format(*self.colors[self.i+1], alpha)
+        r = fmt.format(*self.colors[self.i], alpha)
         self.i = (self.i + 1) % len(self.colors)
         return r
 

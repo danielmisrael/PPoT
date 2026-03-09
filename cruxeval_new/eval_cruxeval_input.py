@@ -24,11 +24,10 @@ def sample_llm(model: transformers.AutoModelForCausalLM, tok: transformers.AutoT
                        "num_return_sequences": num_samples}
         
     temp_kwargs.update({"repetition_penalty": 1.0,
-                        "top_p":0.95, "min_p":0.0, "seed":None, "stop_strings":['[/ANSWER]'],
-                        "max_new_tokens":769, 
-                        "logprobs":None, "prompt_logprobs":None,
-                        "truncate_prompt_tokens":None, "guided_decoding":None, 
-                        "extra_args":None, "tokenizer": tok})
+                        "top_p": 0.95,
+                        "stop_strings": ['[/ANSWER]'],
+                        "max_new_tokens": kwargs.pop("max_new_tokens", 769),
+                        "tokenizer": tok})
     
     O = model.generate(**X.to(model.device), return_dict_in_generate=True, output_logits=output_logits, **temp_kwargs)
 
@@ -122,8 +121,10 @@ if __name__ == "__main__":
     parser.add_argument("--max-new-tokens", type=int, default=512)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--timeout", type=int, default=3)
-    parser.add_argument("--report-save-path", type=str, required=True)
     parser.add_argument("--different-constraint", default=False, action="store_true")
+    parser.add_argument("--save-html", default=False, action="store_true")
+    parser.add_argument("--llm-cache", default=False, action="store_true")
+    parser.add_argument("--debug", default=False, action="store_true")
     args = parser.parse_args()
 
     ppot.utils.seed(args.seed)
@@ -138,11 +139,15 @@ if __name__ == "__main__":
 
     # Main loop
     pass_llm_list, pass_pp_list = [], []
-    total_time = 0
     pbar = tqdm.tqdm(enumerate(dataset), total=min(args.num_examples, len(dataset)),
                      desc="CruxEval Input", dynamic_ncols=True)
 
-    generations = json.load(open("/space/poorvagarg/genPPS/cruxeval/model_generations/qwen2.5-coder-0.5b_temp0.0_input/generations.json", "r"))
+    entropy_save_path = f"/space/poorvagarg/genPPS/cruxeval_new/entropy/{args.model}/{args.temperature}/"
+    report_save_path = f"/space/poorvagarg/genPPS/cruxeval_new/report/{args.model}/{args.temperature}/"
+    llm_cache_path = f"/space/poorvagarg/genPPS/cruxeval_new/generations/{args.model}/{args.temperature}/"
+    os.makedirs(entropy_save_path, exist_ok=True)
+    os.makedirs(report_save_path, exist_ok=True)
+    os.makedirs(llm_cache_path, exist_ok=True)
 
     for i, example in pbar:
         if i >= args.num_examples:
@@ -152,16 +157,9 @@ if __name__ == "__main__":
         expected_output = example["output"]
 
         # Step 1: Generate samples with logits
-        start = time.time()
         I, L, S = sample_llm(model, tokenizer, code, expected_output,
                          args.num_llm_samples, temperature=args.temperature,
                          max_new_tokens=args.max_new_tokens, output_logits=True)
-        total_time += time.time() - start
-
-        S = [postprocess_generation(s) for s in S]
-        # # if S[0] != generations[f"sample_{i}"][0]:
-        # #     breakpoint()
-        # S = generations[f"sample_{i}"]
 
         # Step 2: Evaluate LLM pass@k (baseline)
         pass_llm = pass_at_k(S, code, expected_output, args.timeout)
@@ -177,9 +175,6 @@ if __name__ == "__main__":
         pass_pp = pass_at_k(PP_samples, code, expected_output, args.timeout)
         pass_pp_list.append(pass_pp)
 
-        # if not pass_llm and pass_pp:
-        #     breakpoint()
-
         # Update progress bar
         llm_rate = torch.mean(torch.tensor(pass_llm_list, dtype=torch.float))
         pp_rate = torch.mean(torch.tensor(pass_pp_list, dtype=torch.float))
@@ -189,16 +184,8 @@ if __name__ == "__main__":
     # Report
     llm_rate = torch.mean(torch.tensor(pass_llm_list, dtype=torch.float))
     pp_rate = torch.mean(torch.tensor(pass_pp_list, dtype=torch.float))
-    time_per_example = total_time / max(len(pass_llm_list), 1)
 
-    out_msg = (f"pass rate for LLM: {llm_rate}\n"
-               f"pass rate for subset resample: {pp_rate}\n"
-               f"Number of examples: {len(pass_llm_list)}\n"
-               f"Time per example (generation only): {time_per_example:.3f}s\n")
-
-    report_dir = os.path.dirname(args.report_save_path)
-    if report_dir:
-        os.makedirs(report_dir, exist_ok=True)
-    with open(args.report_save_path, "w") as f:
-        f.write(out_msg)
-    print(out_msg)
+    out_msg = (f"Number of examples: {len(pass_llm_list)}\n"
+               f"pass rate for LLM: {llm_rate}\n"
+               f"pass rate for subset resample: {pp_rate}\n")
+    with open(f"{report_save_path}/report.txt", "w") as f: f.write(out_msg)

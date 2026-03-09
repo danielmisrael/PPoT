@@ -66,6 +66,8 @@ def pass_at_k(S: list, timeout: int, gt: float) -> bool:
             if pass_at_k: return True
         except ValueError:
             continue
+        except OverflowError:
+            continue
         # pass_at_k = torch.isclose(torch.tensor(gt), torch.tensor(answer, dtype=torch.float))
     return False
 
@@ -192,6 +194,9 @@ if __name__ == "__main__":
         pass_pp_current = pass_at_k(PPS, timeout=args.timeout, gt=gt) # May have to change the sampling device
         pass_pp.append(pass_pp_current)
 
+        if pass_pp_current and not pass_llm_current:
+            breakpoint()
+
         if args.save_html:
             html = scripts.eval_entropy_programs.html(P[0].entropy_ph.unsqueeze(0), I, L, tokenizer, toc_len=len(D),
                                                   instruction=PROMPT(**X),
@@ -205,4 +210,4 @@ if __name__ == "__main__":
         
     out_msg = f"Number of examples: {len(D)}"
     out_msg += f"pass rate for LLM: {pass_llm_rate}\n" + f"pass rate for probabilistic program: {pass_pp_rate}\n" 
-    # with open(f"{report_save_path}/report.txt", "w") as f: f.write(out_msg)
+    with open(f"{report_save_path}/report.txt", "w") as f: f.write(out_msg)

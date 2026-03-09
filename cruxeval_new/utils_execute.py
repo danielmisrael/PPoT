@@ -12,28 +12,42 @@ import platform
 import signal
 import tempfile
 
-
 def check_correctness(check_program, timeout=3):
-    """
-    Evaluates the functional correctness of a completion by running the test
-    suite provided in the problem.
+    result = "failed"
+    try:
+        exec_globals = {}
+        with time_limit(timeout):
+            exec(check_program, exec_globals)
+        result = "passed"
+    except TimeoutException:
+        result = "timed out"
+    except BaseException as e:
+        result = f"failed: {e}"
+    return result == "passed"
+   
 
-    :param completion_id: an optional completion ID so we can match
-        the results later even if execution finishes asynchronously.
-    """
-    manager = multiprocessing.Manager()
-    result = manager.list()
 
-    p = multiprocessing.Process(target=unsafe_execute, args=(check_program, result, timeout))
-    p.start()
-    p.join(timeout=timeout + 1)
-    if p.is_alive():
-        p.kill()
+# def check_correctness(check_program, timeout=3):
+#     """
+#     Evaluates the functional correctness of a completion by running the test
+#     suite provided in the problem.
 
-    if not result:
-        result.append("timed out")
+#     :param completion_id: an optional completion ID so we can match
+#         the results later even if execution finishes asynchronously.
+#     """
+#     manager = multiprocessing.Manager()
+#     result = manager.list()
 
-    return result[0] == "passed"
+#     p = multiprocessing.Process(target=unsafe_execute, args=(check_program, result, timeout))
+#     p.start()
+#     p.join(timeout=timeout + 1)
+#     if p.is_alive():
+#         p.kill()
+
+#     if not result:
+#         result.append("timed out")
+
+#     return result[0] == "passed"
 
 
 def unsafe_execute(check_program, result, timeout):

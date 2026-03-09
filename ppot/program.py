@@ -271,7 +271,6 @@ class SubsetProgram:
                                       device=self.device).unsqueeze(1)  # (vocab_size, 1)
         target_expanded = target_tokens_tensor.unsqueeze(0)  # (1, seq_len)
         matches = (vocab_expanded == target_expanded)  # (vocab_size, seq_len)
-
         suffix_masks = torch.any(
             position_mask.unsqueeze(1) & matches.unsqueeze(0), dim=2
         ).float()  # (seq_len, vocab_size)
@@ -339,6 +338,9 @@ class SubsetProgram:
 
     def sample_program_constraint(self, t: float = 1.0) -> str:
         "Returns a deterministic string sampled via subset resampling, guaranteed different."
+        if len(self.target_tokens) > 500:
+            # print("Too big program")
+            return self.raw_program
         new_tokens = self.resample_subset(temperature=t, atleastone_constraint=True)
         return self.tokenizer.decode(new_tokens)
 

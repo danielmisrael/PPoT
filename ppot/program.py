@@ -75,9 +75,10 @@ class Program:
                 key_in_logits = 0
             logits_actual_value.append(v[key_in_logits])
         logits_actual_value = torch.tensor(logits_actual_value)
-        log_cum_prod = torch.sum(logits_actual_value)
+        log_cum_prod = torch.sum(logits_actual_value) # probability of LLM assignment
 
         # in this sample list, False indicates change the variable, True indicates keep the variable same
+        # the following code figures out which random variable needs to change  
         sample = []
         independent = False
         for i in range(logits_actual_value.shape[0]):
@@ -95,7 +96,7 @@ class Program:
         if len(sample) != 0:
             assert torch.any(torch.tensor(sample).to(torch.bool) != torch.tensor([True for i in range(len(sample))]))
 
-        final_sample = []
+        final_sample = [] # consists of index in the support
         for i, change in enumerate(sample):
             if not change:
                 logits = deepcopy(mapping[i])

@@ -1,6 +1,16 @@
 import regex
 import torch, transformers, numpy as np
+from collections import namedtuple
 import ppot.program, ppot.utils
+
+CompactLogits = namedtuple('CompactLogits', ['token_log_prob', 'supp_logits', 'supp_ids'])
+"""
+Compact logit representation storing only what programs() needs.
+  token_log_prob : (batch, seq_len)        — log P(actual_token_t) at each position
+  supp_logits    : (batch, seq_len, |supp|) — raw logits at support token IDs
+  supp_ids       : (|supp|,)               — the support token IDs (union of all rules)
+Reduces CPU transfer from ~1.8GB to ~1MB per example.
+"""
 
 def get_token_pos(token_ids: torch.LongTensor, processor: transformers.AutoProcessor,
                   rule: str = r"(?<!(?:[a-df-zA-DF-Z_][0-9]*)|(?:[eE][eE]+[0-9]*)|(?:#.*))([0-9])") -> list:
@@ -96,8 +106,13 @@ def programs(token_ids: torch.LongTensor, logits: torch.FloatTensor,
 
     # Compute loglikelihoods.
     M = torch.isin(token_ids, torch.tensor(tok.all_special_ids)) # special tokens
-    L = torch.log_softmax(logits, dim=-1) # logits from scores
-    LL = torch.sum(L.gather(dim=-1, index=token_ids.unsqueeze(-1)).squeeze(-1).masked_fill_(M, 0.0), dim=-1)
+    is_compact = isinstance(logits, CompactLogits)
+    if is_compact:
+        supp_id_lookup = {int(v): k for k, v in enumerate(logits.supp_ids.tolist())}
+        LL = torch.sum(logits.token_log_prob.masked_fill(M, 0.0), dim=-1)
+    else:
+        L = torch.log_softmax(logits, dim=-1) # logits from scores
+        LL = torch.sum(L.gather(dim=-1, index=token_ids.unsqueeze(-1)).squeeze(-1).masked_fill(M, 0.0), dim=-1)
     nLL = LL/torch.sum(torch.bitwise_not(M), dim=-1) # normalized loglikelihood
 
     for i, (T, P) in enumerate(zip(token_ids, pos)):
@@ -113,7 +128,12 @@ def programs(token_ids: torch.LongTensor, logits: torch.FloatTensor,
         # Prepare random variable names as a list.
         X = list(range(len(P)))
         # Prepare logits as a list of tensors.
-        L_supp = [torch.log_softmax(L[i,p,x], dim=-1) for p, x in zip(P, supp[i])]
+        if is_compact:
+            L_supp = [torch.log_softmax(
+                          logits.supp_logits[i, p][[supp_id_lookup[int(t)] for t in x]], dim=-1)
+                      for p, x in zip(P, supp[i])]
+        else:
+            L_supp = [torch.log_softmax(L[i,p,x], dim=-1) for p, x in zip(P, supp[i])]
         if only_one:
             # Default values for RVs.
             V_default = tok.batch_decode([x.item() for x in token_ids[i,P]])

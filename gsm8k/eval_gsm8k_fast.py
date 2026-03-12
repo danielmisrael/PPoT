@@ -1,7 +1,46 @@
 import argparse, json, os, math, numbers, pickle
 import transformers, datasets, torch, tqdm
 import ppot.utils, scripts.eval_entropy_programs, ppot.program, ppot.compile
+from ppot.compile import CompactLogits
+from transformers import LogitsProcessorList, LogitsProcessor
 import time
+
+
+class _CompactLogitsCapture(LogitsProcessor):
+    """Captures compact logits during generation: supp_logits + token_log_prob.
+
+    supp_logits: raw logits at support positions, transferred to CPU non-blocking.
+    token_log_prob: log P(sampled token) at each step, computed one step later
+        (at step t+1 we know input_ids[:, -1] = token sampled at step t, so we
+        gather from the cached log_softmax). Call finalize() after generate() to
+        flush the final step's token_log_prob.
+    """
+    def __init__(self, supp_ids: torch.LongTensor):
+        self.supp_ids = supp_ids         # (|supp|,) on GPU
+        self._supp_cpu = []              # list of (batch, |supp|) CPU tensors
+        self._tlp_cpu = []               # list of (batch,) CPU tensors
+        self._prev_lp = None             # (batch, vocab) log_softmax from previous step
+
+    def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
+        lp = torch.log_softmax(scores, dim=-1)
+        if self._prev_lp is not None:
+            prev_token = input_ids[:, -1]   # token sampled at t-1
+            self._tlp_cpu.append(
+                self._prev_lp.gather(-1, prev_token.unsqueeze(-1)).squeeze(-1)
+                .to("cpu", non_blocking=True))
+        self._supp_cpu.append(scores[:, self.supp_ids].to("cpu", non_blocking=True))
+        self._prev_lp = lp
+        return scores
+
+    def finalize(self, last_gen_ids: torch.LongTensor):
+        """Flush token_log_prob for the final generated token. last_gen_ids: (batch,) on GPU."""
+        if self._prev_lp is not None:
+            self._tlp_cpu.append(
+                self._prev_lp.gather(-1, last_gen_ids.unsqueeze(-1)).squeeze(-1)
+                .to("cpu", non_blocking=True))
+        torch.cuda.synchronize()
+        return (torch.stack(self._supp_cpu, dim=1),   # (batch, seq_len, |supp|)
+                torch.stack(self._tlp_cpu, dim=1))    # (batch, seq_len)
 
 """This file generates entropy pages for the dataset GSM8k"""
 
@@ -21,22 +60,31 @@ def template(tok: transformers.AutoTokenizer, X: dict) -> transformers.BatchEnco
     else: raise NotImplementedError
     return E, tok([E], return_tensors="pt")
 
-def sample_llm(model: transformers.AutoModelForCausalLM, tok: transformers.AutoTokenizer, X: dict,
-           num_samples: int, temperature: float = None, output_logits = False, **kwargs) -> (torch.LongTensor, torch.FloatTensor, list):
-    _, X = template(tok, X)
-    if temperature == 0.0: temp_kwargs = {"do_sample": False, "num_return_sequences": 1}
-    else: temp_kwargs = {"do_sample": True, "temperature": temperature, "num_return_sequences": num_samples}
+def sample_llm_compact(model: transformers.AutoModelForCausalLM, tok: transformers.AutoTokenizer,
+                       X: dict, num_samples: int, supp_ids: torch.LongTensor,
+                       temperature: float = None, **kwargs) -> (torch.LongTensor, CompactLogits, list):
+    """Generate samples and return a CompactLogits representation (~1MB vs ~1.8GB).
 
-    O = model.generate(**X.to(model.device), return_dict_in_generate=True, output_logits=output_logits,
+    Uses a LogitsProcessor that captures only supp_logits + token_log_prob at each
+    step, with non-blocking CPU transfers overlapping with the next GPU forward pass.
+    """
+    _, enc = template(tok, X)
+    if temperature == 0.0:
+        temp_kwargs = {"do_sample": False, "num_return_sequences": 1}
+    else:
+        temp_kwargs = {"do_sample": True, "temperature": temperature, "num_return_sequences": num_samples}
+
+    cap = _CompactLogitsCapture(supp_ids.to(model.device))
+    O = model.generate(**enc.to(model.device), return_dict_in_generate=True, output_logits=False,
+                       logits_processor=LogitsProcessorList([cap]),
                        repetition_penalty=1.0, top_p=1.0, **temp_kwargs, **kwargs)
-    k = X.input_ids.numel()
-    I = O.sequences[:,k:].cpu()
-    S = tok.batch_decode(I, skip_special_tokens=True)
-    if output_logits:
-        L = torch.concatenate(tuple(x.cpu() for x in O.logits),dim=-1).reshape(O.logits[0].shape[0], len(O.logits), -1)
-    else: L = None
+    k = enc.input_ids.numel()
+    I = O.sequences[:, k:].cpu()
 
-    return I, L, S
+    supp_logits, token_log_prob = cap.finalize(O.sequences[:, -1])
+    S = tok.batch_decode(I, skip_special_tokens=True)
+    return I, CompactLogits(token_log_prob=token_log_prob, supp_logits=supp_logits, supp_ids=supp_ids), S
+
 
 def execute(P: str, val_on_err = None, timeout: float = 10) -> float:
     y, L, G = None, {}, {}
@@ -135,6 +183,9 @@ if __name__ == "__main__":
     parser.add_argument("--save-html", default=False, action="store_true")
     parser.add_argument("--llm-cache", default=False, action="store_true")
     parser.add_argument("--debug", default=False, action="store_true")
+    parser.add_argument("--entropy-save-path", type=str, default="/space/poorvagarg/genPPS/gsm8k/entropy/{model}/{temperature}/")
+    parser.add_argument("--report-save-path", type=str, default="/space/poorvagarg/genPPS/gsm8k/report/{model}/{temperature}/")
+    parser.add_argument("--llm-cache-path", type=str, default="/space/poorvagarg/genPPS/gsm8k/generations/{model}/{temperature}/")
     args = parser.parse_args()
 
     ppot.utils.seed(args.seed)
@@ -160,25 +211,26 @@ if __name__ == "__main__":
     # Dataset, creating directories, getting rules
     pbar = tqdm.tqdm(D, desc="Example", dynamic_ncols=True)
 
-    entropy_save_path = f"/space/poorvagarg/genPPS/gsm8k/entropy/{args.model}/{args.temperature}/"
-    report_save_path = f"/space/poorvagarg/genPPS/gsm8k/report/{args.model}/{args.temperature}/"
-    llm_cache_path = f"/space/poorvagarg/genPPS/gsm8k/generations/{args.model}/{args.temperature}/"
+    entropy_save_path = args.entropy_save_path.format(model=args.model, temperature=args.temperature)
+    report_save_path = args.report_save_path.format(model=args.model, temperature=args.temperature)
+    llm_cache_path = args.llm_cache_path.format(model=args.model, temperature=args.temperature)
     os.makedirs(entropy_save_path, exist_ok=True)
     os.makedirs(report_save_path, exist_ok=True)
     os.makedirs(llm_cache_path, exist_ok=True)
 
     rule, supp = get_rule_supp(args.rule, tokenizer)
-    
+    supp_ids = torch.cat(supp).unique()
+
     for i, X in enumerate(pbar):
         gt = float(D["answer"][i])
         saved_path = f"{llm_cache_path}/{i}.pkl"
         if os.path.isfile(saved_path):
-            with open(saved_path, "rb") as f: 
+            with open(saved_path, "rb") as f:
                 I, L, S = pickle.load(f)
-                I, L, S = I[:args.num_llm_samples, ...], L[:args.num_llm_samples, ...], S[:args.num_llm_samples] 
+                I, L, S = I[:args.num_llm_samples, ...], L[:args.num_llm_samples, ...], S[:args.num_llm_samples]
         else:
-            I, L, S = sample_llm(model, tokenizer, X, args.num_llm_samples, temperature=args.temperature,
-                             max_new_tokens=args.max_new_tokens, output_logits=True)
+            I, L, S = sample_llm_compact(model, tokenizer, X, args.num_llm_samples, supp_ids,
+                                         temperature=args.temperature, max_new_tokens=args.max_new_tokens)
             if args.llm_cache:
                 with open(saved_path, "wb") as f: pickle.dump((I, L, S), f)
 
@@ -188,7 +240,7 @@ if __name__ == "__main__":
         pass_llm_current = pass_at_k(S, timeout=args.timeout, gt=gt)
         pass_llm.append(pass_llm_current)
 
-        P, _ = ppot.compile.programs(I[:,...], L[:,...], tokenizer, S[:], only_one=args.uspp, rules = rule, supp = supp)
+        P, _ = ppot.compile.programs(I, L, tokenizer, S, only_one=args.uspp, rules = rule, supp = supp)
         PPS = sample_pp(P, args.num_samples, args.program_temperature, diff_constraint=args.different_constraint,
                         debug=args.debug)
         pass_pp_current = pass_at_k(PPS, timeout=args.timeout, gt=gt) # May have to change the sampling device

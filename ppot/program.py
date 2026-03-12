@@ -52,7 +52,7 @@ class Program:
         if self.homogenous:
             S = torch.argmax(torch.log_softmax(self.P_tensor/t, dim=-1)+self.gumbel.sample(self.P_tensor.shape), dim=-1).cpu()
         else:
-            S = (torch.argmax(torch.log_softmax(p/t, dim=-1)+self.gumbel.sample(p.shape)) for p in self.mapping.values()).cpu()
+            S = [torch.argmax(torch.log_softmax(p/t, dim=-1)+self.gumbel.sample(p.shape)) for p in self.mapping.values()]
         V = [self.supp[i][x.item()] for i, x in enumerate(S)]
         # Output code.
         return self.code.format(*V)

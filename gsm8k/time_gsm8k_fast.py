@@ -117,5 +117,5 @@ if __name__ == "__main__":
         out_msg += f"PP sampling: {pp_time_pp[i]/len(D)}\n"
         out_msg += f"Total PP time: {(pp_time_llm[i] + pp_time_compile[i] + pp_time_pp[i])/len(D)}\n\n"
 
-    with open(f"{report_save_path}/time_{args.num_llm_samples}_{args.num_samples}.txt", "w") as f:
+    with open(f"{report_save_path}/time_{args.num_llm_samples}_{args.num_samples}_fast.txt", "w") as f:
         f.write(out_msg)

@@ -356,3 +356,168 @@ class SubsetProgram:
         "Returns the original generation."
         r = self.raw_string
         return [r] if as_list else r
+
+
+class FastSubsetProgram:
+    """Optimized SubsetProgram using compact logits (unique token cols only).
+
+    Pre-computes suffix masks once and caches them for reuse across n samples.
+    Suffix masks are (seq_len, n_unique) instead of (seq_len, vocab_size) — ~3000x smaller.
+    """
+
+    def __init__(self, compact_logits: torch.FloatTensor, target_tokens: list,
+                 unique_toks: torch.LongTensor, tokenizer: transformers.AutoTokenizer,
+                 raw_string: str, device: str = None):
+        """
+        Args:
+            compact_logits: (seq_len, n_unique) logits at unique token columns only
+            target_tokens: list of int — original token IDs for the answer portion
+            unique_toks: (n_unique,) tensor — vocab IDs for each column
+            tokenizer: the model's tokenizer
+            raw_string: the original decoded answer string
+        """
+        self.compact_logits = compact_logits
+        self.target_tokens = target_tokens
+        self.unique_toks = unique_toks
+        self.tokenizer = tokenizer
+        self.raw_program = raw_string
+        self.raw_string = raw_string
+        self.supp = []
+        self.device = device or "cpu"
+
+        # Reverse mapping: vocab_id -> column index
+        self.tok_to_col = {int(v): i for i, v in enumerate(unique_toks.tolist())}
+        # Map target_tokens to compact column indices
+        self.target_cols = [self.tok_to_col[t] for t in target_tokens]
+
+        self._cache = None
+        self._cache_key = None
+
+    def to(self, device: str):
+        if device == self.device:
+            return self
+        self.compact_logits = self.compact_logits.to(device)
+        self.device = device
+        return self
+
+    def _get_precomputed(self, temperature: float, atleastone_constraint: bool):
+        """Compute and cache suffix masks + masked probs over compact vocab."""
+        key = (temperature, atleastone_constraint)
+        if self._cache is not None and self._cache_key == key:
+            return self._cache
+
+        logits = self.compact_logits
+        if not isinstance(logits, torch.Tensor):
+            logits = torch.tensor(logits, dtype=torch.float32)
+        logits = logits.to(self.device)
+        n_unique = logits.shape[-1]
+        seq_len = len(self.target_tokens)
+
+        probs = torch.softmax(logits / temperature, dim=-1)
+
+        target_cols_t = torch.tensor(self.target_cols, dtype=torch.long, device=self.device)
+        pos_indices = torch.arange(seq_len, device=self.device)
+        position_mask = pos_indices.unsqueeze(1) <= pos_indices.unsqueeze(0)
+
+        col_indices = torch.arange(n_unique, dtype=torch.long, device=self.device).unsqueeze(1)
+        target_cols_expanded = target_cols_t.unsqueeze(0)
+        matches = (col_indices == target_cols_expanded)  # (n_unique, seq_len)
+        suffix_masks = torch.any(
+            position_mask.unsqueeze(1) & matches.unsqueeze(0), dim=2).float()
+
+        masked_probs = probs * suffix_masks
+        masked_probs = masked_probs / masked_probs.sum(dim=-1, keepdim=True)
+
+        cumprod = None
+        if atleastone_constraint:
+            target_match_probs = masked_probs[pos_indices, target_cols_t]
+            cumprod = torch.flip(
+                torch.cumprod(torch.flip(target_match_probs, [0]), dim=0), [0])
+
+        result = {"masked_probs": masked_probs, "cumprod": cumprod}
+        self._cache = result
+        self._cache_key = key
+        return result
+
+    def resample_subset(self, temperature: float = 1.0, atleastone_constraint: bool = False,
+                        eps: float = 1e-21, _precomputed: dict = None) -> list:
+        """Resample using compact pre-computed data. Same algorithm as SubsetProgram."""
+        pre = _precomputed or self._get_precomputed(temperature, atleastone_constraint)
+        masked_probs = pre["masked_probs"]
+        cumprod = pre["cumprod"]
+        seq_len = len(self.target_tokens)
+
+        if atleastone_constraint and seq_len == 3:
+            return [self.target_tokens[0], self.target_tokens[2]]
+        if seq_len < 3:
+            return self.target_tokens.copy()
+
+        new_tokens = self.target_tokens.copy()
+        i = 2
+        original_positions = list(range(seq_len))
+        constraint_satisfied = (
+            torch.isnan(cumprod).any() if cumprod is not None else True)
+
+        while i < len(new_tokens) - 1:
+            original_pos = original_positions[i]
+            if original_pos >= len(masked_probs):
+                break
+
+            token_probs = masked_probs[original_pos].clone()
+
+            if atleastone_constraint and not constraint_satisfied:
+                target_token = self.target_tokens[original_pos]
+                target_col = self.tok_to_col[target_token]
+                future_cumprod = cumprod[original_pos + 1].item()
+                constraint_factor = 1.0 - future_cumprod + eps
+                token_probs[target_col] *= constraint_factor
+
+            token_probs = token_probs / token_probs.sum()
+            sampled_col = torch.multinomial(token_probs, num_samples=1).item()
+            sampled_token = int(self.unique_toks[sampled_col])
+
+            found_at = i
+            for j in range(i + 1, len(new_tokens)):
+                if new_tokens[j] == sampled_token:
+                    found_at = j
+                    break
+
+            if atleastone_constraint and (
+                    sampled_token != self.target_tokens[original_pos] or found_at > i):
+                constraint_satisfied = True
+
+            new_tokens = (new_tokens[:i] + [sampled_token]
+                          + new_tokens[found_at + 1:])
+            original_positions = (original_positions[:i]
+                                  + [original_positions[found_at]]
+                                  + original_positions[found_at + 1:])
+            i += 1
+
+        if atleastone_constraint and new_tokens == self.target_tokens:
+            raise RuntimeError(
+                f"atleastone_constraint failed (seq len {seq_len}): {self.target_tokens}")
+        return new_tokens
+
+    def sample_program(self, t: float = 1.0, _precomputed: dict = None) -> str:
+        new_tokens = self.resample_subset(temperature=t, _precomputed=_precomputed)
+        return self.tokenizer.decode(new_tokens)
+
+    def sample_program_constraint(self, t: float = 1.0, _precomputed: dict = None) -> str:
+        if len(self.target_tokens) > 500:
+            return self.raw_program
+        new_tokens = self.resample_subset(
+            temperature=t, atleastone_constraint=True, _precomputed=_precomputed)
+        return self.tokenizer.decode(new_tokens)
+
+    def sample(self, n: int = 1, as_list: bool = False, constraint: bool = False,
+               **kwargs) -> list:
+        func = self.sample_program_constraint if constraint else self.sample_program
+        if n == 1 and not as_list:
+            return func(**kwargs)
+        pre = self._get_precomputed(
+            temperature=kwargs.get('t', 1.0), atleastone_constraint=constraint)
+        return [func(_precomputed=pre, **kwargs) for _ in range(n)]
+
+    def greedy(self, as_list: bool = False) -> str:
+        r = self.raw_string
+        return [r] if as_list else r

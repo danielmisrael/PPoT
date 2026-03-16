@@ -145,6 +145,63 @@ def programs(token_ids: torch.LongTensor, logits: torch.FloatTensor,
     return PP, nLL
 
 
+def fast_subset_programs(token_ids: torch.LongTensor, compact_scores: torch.FloatTensor,
+                         token_log_prob: torch.FloatTensor, unique_toks: torch.LongTensor,
+                         processor: transformers.AutoProcessor, strings: list = None,
+                         answer_extractor: callable = None) -> tuple:
+    """Create FastSubsetProgram objects from compact logits.
+
+    Args:
+        token_ids: (batch, seq_len) generated token IDs
+        compact_scores: (batch, seq_len, n_unique) logits at unique token cols
+        token_log_prob: (batch, seq_len) log P(actual token) per position
+        unique_toks: (n_unique,) the vocab IDs for each column
+        processor: tokenizer
+        strings: optional pre-decoded strings
+        answer_extractor: callable(string) -> (start_char, end_char)
+    Returns:
+        List of FastSubsetProgram objects, normalized log-likelihoods tensor.
+    """
+    tok = processor if ppot.utils.is_tokenizer(processor) else processor.tokenizer
+
+    M = torch.isin(token_ids, torch.tensor(tok.all_special_ids))
+    LL = torch.sum(token_log_prob.masked_fill(M, 0.0), dim=-1)
+    non_special = torch.sum(~M, dim=-1)
+    nLL = LL / torch.clamp(non_special, min=1)
+
+    PP = []
+    for i in range(token_ids.shape[0]):
+        ids = token_ids[i]
+        pad_id = tok.pad_token_id if tok.pad_token_id is not None else tok.eos_token_id
+        if pad_id is not None:
+            non_pad = (ids != pad_id).nonzero(as_tuple=True)[0]
+            end_pos = non_pad[-1].item() + 1 if len(non_pad) > 0 else 0
+        else:
+            end_pos = len(ids)
+
+        ids_trimmed = ids[:end_pos]
+        logits_trimmed = compact_scores[i, :end_pos, :]
+
+        if answer_extractor is not None and end_pos > 0:
+            start_tok, end_tok = _get_answer_token_span(
+                ids_trimmed, tok, answer_extractor)
+            answer_ids = ids_trimmed[start_tok:end_tok]
+            answer_logits = logits_trimmed[start_tok:end_tok, :]
+            answer_string = tok.decode(answer_ids)
+        else:
+            answer_ids = ids_trimmed
+            answer_logits = logits_trimmed
+            if strings is not None:
+                answer_string = strings[i]
+            else:
+                answer_string = tok.decode(answer_ids)
+
+        PP.append(ppot.program.FastSubsetProgram(
+            answer_logits, answer_ids.tolist(), unique_toks, tok, answer_string))
+
+    return PP, nLL
+
+
 def _get_answer_token_span(token_ids_single: torch.LongTensor, tokenizer,
                            answer_extractor: callable) -> tuple:
     """Map character-level answer boundaries to token positions.

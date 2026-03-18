@@ -260,7 +260,11 @@ class SubsetProgram:
         seq_len = len(self.target_tokens)
         vocab_size = logits.shape[-1]
 
-        probs = torch.softmax(logits / temperature, dim=-1)
+        greedy = (temperature == 0)
+        if greedy:
+            probs = torch.softmax(logits, dim=-1)
+        else:
+            probs = torch.softmax(logits / temperature, dim=-1)
 
         # Suffix masks: at position i, only tokens from target_tokens[i:] are allowed
         target_tokens_tensor = torch.tensor(self.target_tokens, dtype=torch.long,
@@ -308,7 +312,10 @@ class SubsetProgram:
                     token_probs[target_token_at_pos] * constraint_factor)
 
             token_probs = token_probs / token_probs.sum()
-            sampled_token = torch.multinomial(token_probs, num_samples=1).item()
+            if greedy:
+                sampled_token = token_probs.argmax().item()
+            else:
+                sampled_token = torch.multinomial(token_probs, num_samples=1).item()
 
             # Find where sampled token appears in future positions
             found_at = i
@@ -413,7 +420,10 @@ class FastSubsetProgram:
         n_unique = logits.shape[-1]
         seq_len = len(self.target_tokens)
 
-        probs = torch.softmax(logits / temperature, dim=-1)
+        if temperature == 0:
+            probs = torch.softmax(logits, dim=-1)
+        else:
+            probs = torch.softmax(logits / temperature, dim=-1)
 
         target_cols_t = torch.tensor(self.target_cols, dtype=torch.long, device=self.device)
         pos_indices = torch.arange(seq_len, device=self.device)
@@ -473,7 +483,10 @@ class FastSubsetProgram:
                 token_probs[target_col] *= constraint_factor
 
             token_probs = token_probs / token_probs.sum()
-            sampled_col = torch.multinomial(token_probs, num_samples=1).item()
+            if temperature == 0:
+                sampled_col = token_probs.argmax().item()
+            else:
+                sampled_col = torch.multinomial(token_probs, num_samples=1).item()
             sampled_token = int(self.unique_toks[sampled_col])
 
             found_at = i

@@ -100,9 +100,10 @@ def programs(token_ids: torch.LongTensor, logits: torch.FloatTensor,
                 pos_extended.extend(positions)
             joint_supp.append(supp_extended)
             joint_positions.append(pos_extended)
+        pos, supp = joint_positions, joint_supp
 
     PP = []
-    pos, supp = joint_positions, joint_supp
+    
 
     # Compute loglikelihoods.
     M = torch.isin(token_ids, torch.tensor(tok.all_special_ids)) # special tokens

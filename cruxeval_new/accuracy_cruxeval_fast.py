@@ -66,7 +66,7 @@ if __name__ == "__main__":
     parser.add_argument("--suffix", type=str, default="")
     args = parser.parse_args()
 
-    ppot.utils.seed(args.seed)
+    # ppot.utils.seed(args.seed)
 
     # Load model
     model = transformers.AutoModelForCausalLM.from_pretrained(

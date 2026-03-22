@@ -47,6 +47,8 @@ if __name__ == "__main__":
     parser.add_argument("--different-constraint", default=False, action="store_true")
     parser.add_argument("--debug", default=False, action="store_true")
     parser.add_argument("--report-save-path", type=str, default="/space/poorvagarg/genPPS/gsm8k/report/{model}/{temperature}/")
+    parser.add_argument("--suffix", type=str, default="")
+    parser.add_argument("--shuffle", default=False, action="store_true")
     args = parser.parse_args()
 
     ppot.utils.seed(args.seed)
@@ -66,6 +68,9 @@ if __name__ == "__main__":
         D = datasets.Dataset.from_list(J[:args.num_examples])
     else:
         D = datasets.Dataset.load_from_disk(args.dataset)
+    
+    if args.shuffle:
+        D = D.shuffle().select(range(args.num_examples))
 
     report_save_path = args.report_save_path.format(model=args.model, temperature=args.temperature)
     os.makedirs(report_save_path, exist_ok=True)
@@ -117,5 +122,5 @@ if __name__ == "__main__":
         out_msg += f"PP sampling: {pp_time_pp[i]/len(D)}\n"
         out_msg += f"Total PP time: {(pp_time_llm[i] + pp_time_compile[i] + pp_time_pp[i])/len(D)}\n\n"
 
-    with open(f"{report_save_path}/time_{args.num_llm_samples}_{args.num_samples}_fast.txt", "w") as f:
+    with open(f"{report_save_path}/time_{args.num_llm_samples}_{args.num_samples}_{args.suffix}.txt", "w") as f:
         f.write(out_msg)

@@ -109,7 +109,7 @@ if __name__ == "__main__":
         pass_llm_current = pass_at_k(S, timeout=args.timeout, gt=gt)
         pass_llm.append(pass_llm_current)
 
-        P, _ = ppot.compile.programs(I[:,...], L[:,...], tokenizer, S[:], only_one=args.uspp, rules = rule, supp = supp)
+        P, _ = ppot.compile.programs(I, L, tokenizer, S, only_one=args.uspp, rules = rule, supp = supp)
         PPS = sample_pp(P, args.num_samples, args.program_temperature, diff_constraint=args.different_constraint,
                         debug=args.debug)
         

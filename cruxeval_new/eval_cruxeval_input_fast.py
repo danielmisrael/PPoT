@@ -1,5 +1,5 @@
 import argparse, json, os, time
-import transformers, datasets, torch, tqdm
+import transformers, datasets, torch, tqdm # type: ignore
 import ppot.utils, ppot.program, ppot.compile
 from transformers import LogitsProcessorList, LogitsProcessor
 from cruxeval_new.utils_execute import check_correctness
@@ -8,7 +8,7 @@ from cruxeval_new.prompts import make_direct_input_prompt
 def template(tok: transformers.AutoTokenizer, code: str, output: str):
     """Apply chat template to CruxEval input prediction prompt."""
     prompt_text = make_direct_input_prompt((code, output))
-    return prompt_text, tok([prompt_text], return_tensors="pt")
+    return prompt_text, tok([prompt_text], return_tensors="pt") # type: ignore
 
 class _SubsetLogitsCapture(LogitsProcessor):
     """Captures logits during generation with non_blocking CPU transfers.
@@ -59,13 +59,14 @@ class _SubsetLogitsCapture(LogitsProcessor):
 
 
 def sample_compact(model: transformers.AutoModelForCausalLM, tok: transformers.AutoTokenizer,
-                   code: str, output: str, num_samples: int, temperature: float = None,
+                   code: str, output: str, num_samples: int, temperature: float,
                    **kwargs) -> tuple:
     """Generate samples with compact logits via LogitsProcessor.
 
     Returns (token_ids, compact_scores, token_log_prob, unique_toks, decoded_strings).
     """
     X_str, X = template(tok, code, output)
+    temp_kwargs: dict
     if temperature == 0.0:
         temp_kwargs = {"do_sample": False, "num_return_sequences": 1}
     else:
@@ -77,13 +78,14 @@ def sample_compact(model: transformers.AutoModelForCausalLM, tok: transformers.A
                         "tokenizer": tok})
 
     cap = _SubsetLogitsCapture()
-    O = model.generate(**X.to(model.device), return_dict_in_generate=True,
+    device = next(model.parameters()).device # type: ignore
+    O = model.generate(**X.to(device), return_dict_in_generate=True, # type: ignore
                        output_logits=False,
                        logits_processor=LogitsProcessorList([cap]),
                        **temp_kwargs)
     k = X.input_ids.numel()
     I = O.sequences[:, k:].cpu()
-    S = tok.batch_decode(I, skip_special_tokens=True)
+    S = tok.batch_decode(I, skip_special_tokens=True) # type: ignore
 
     compact_scores, token_log_prob, unique_toks = cap.finalize(
         O.sequences[:, -1], I)
@@ -140,7 +142,7 @@ def pass_at_k(S: list, code: str, expected_output: str,
     return False
 
 def sample_pp(programs: list, num_samples: int, pp_temperature: float = 1.0,
-                 constraint: bool = False) -> bool:
+                 constraint: bool = False) -> list:
     all_samples = []
     for prog in programs:
         samples = prog.sample(num_samples, as_list=True, t=pp_temperature,

@@ -1,5 +1,5 @@
 import argparse, json, os, time
-import transformers, datasets, torch, tqdm
+import transformers, datasets, torch, tqdm # type: ignore
 import ppot.utils, ppot.program, ppot.compile
 from cruxeval_new.utils_execute import check_correctness
 from cruxeval_new.prompts import make_direct_input_prompt
@@ -7,16 +7,17 @@ from cruxeval_new.prompts import make_direct_input_prompt
 def template(tok: transformers.AutoTokenizer, code: str, output: str):
     """Apply chat template to CruxEval input prediction prompt."""
     prompt_text = make_direct_input_prompt((code, output))
-    return prompt_text, tok([prompt_text], return_tensors="pt")
+    return prompt_text, tok([prompt_text], return_tensors="pt") # type: ignore
 
 def sample_llm(model: transformers.AutoModelForCausalLM, tok: transformers.AutoTokenizer,
-           code: str, output: str, num_samples: int, temperature: float = None, output_logits: bool = False,
+           code: str, output: str, num_samples: int, temperature: float, output_logits: bool = False,
            **kwargs) -> tuple:
     """Generate samples with logits for subset resampling.
 
     Returns (token_ids, logits, decoded_strings).
     """
     _, X = template(tok, code, output)
+    temp_kwargs: dict
     if temperature == 0.0:
         temp_kwargs = {"do_sample": False, "num_return_sequences": 1}
     else:
@@ -29,11 +30,11 @@ def sample_llm(model: transformers.AutoModelForCausalLM, tok: transformers.AutoT
                         "max_new_tokens": kwargs.pop("max_new_tokens", 769),
                         "tokenizer": tok})
     
-    O = model.generate(**X.to(model.device), return_dict_in_generate=True, output_logits=output_logits, **temp_kwargs)
+    O = model.generate(**X.to(model.device), return_dict_in_generate=True, output_logits=output_logits, **temp_kwargs) # type: ignore
 
     k = X.input_ids.numel()
     I = O.sequences[:, k:].cpu()
-    S = tok.batch_decode(I, skip_special_tokens=True)
+    S = tok.batch_decode(I, skip_special_tokens=True) # type: ignore
 
     # O.logits is a tuple of (num_samples, vocab_size) tensors, one per position
     if output_logits:
@@ -92,7 +93,7 @@ def pass_at_k(S: list, code: str, expected_output: str,
     return False
 
 def sample_pp(programs: list, num_samples: int, pp_temperature: float = 1.0,
-                 constraint: bool = False) -> bool:
+                 constraint: bool = False) -> list:
     all_samples = []
     for prog in programs:
         samples = prog.sample(num_samples, as_list=True, t=pp_temperature,

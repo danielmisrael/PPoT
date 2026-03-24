@@ -1,5 +1,5 @@
 import argparse, json, os, time
-import transformers, datasets, torch, tqdm
+import transformers, datasets, torch, tqdm # type: ignore
 import ppot.utils, ppot.program, ppot.compile
 from cruxeval_new.utils_execute import check_correctness
 from cruxeval_new.prompts import make_direct_input_prompt
@@ -72,7 +72,8 @@ if __name__ == "__main__":
         dataset = dataset.shuffle().select(range(args.num_examples))
 
     # Main loop
-    pass_llm_list, pass_pp_list = [], []
+    pass_llm_list: list = []
+    pass_pp_list: list = []
     pbar = tqdm.tqdm(enumerate(dataset), total=min(args.num_examples, len(dataset)),
                      desc="CruxEval Input", dynamic_ncols=True)
 

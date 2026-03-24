@@ -21,7 +21,6 @@ for model_name in "${model_names[@]}"; do
             --rule all \
             --different-constraint \
             --num-llm-samples 20 \
-            --shuffle \ 
             --parent-dir $1 \
             --suffix fast_$k \
     done

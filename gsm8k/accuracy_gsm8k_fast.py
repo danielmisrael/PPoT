@@ -99,7 +99,7 @@ if __name__ == "__main__":
         saved_path = f"{llm_cache_path}/{i}.pkl"
         I, L, S = sample_llm_compact(model, tokenizer, X, args.num_llm_samples, supp_ids,
                                      temperature=args.temperature,
-                            max_new_tokens=args.max_new_tokens, output_logits=True)
+                            max_new_tokens=args.max_new_tokens)
         if args.llm_cache:
             with open(saved_path, "wb") as f: pickle.dump((I, L, S), f)
 

@@ -75,7 +75,7 @@ def sample_llm_compact(model: transformers.AutoModelForCausalLM, tok: transforme
         temp_kwargs = {"do_sample": True, "temperature": temperature, "num_return_sequences": num_samples}
 
     cap = _CompactLogitsCapture(supp_ids.to(model.device))
-    O = model.generate(**enc.to(model.device), return_dict_in_generate=True, output_logits=False,
+    O = model.generate(**enc.to(model.device), return_dict_in_generate=True,
                        logits_processor=LogitsProcessorList([cap]),
                        repetition_penalty=1.0, top_p=1.0, **temp_kwargs, **kwargs)
     k = enc.input_ids.numel()

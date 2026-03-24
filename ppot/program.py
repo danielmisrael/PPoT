@@ -29,11 +29,14 @@ class Program:
         else: self.homogenous, self.P_tensor = False, None
         if not self.homogenous: self.mapping = {x: p for x, p in zip(X, P)}
         self.raw_program = raw_program
-        self.supp = [tokenizer.batch_decode(v) for v in V]
+        self.supp = [tokenizer.batch_decode(v.reshape(-1, 1) if v.ndim == 1 else v) for v in V]
         self.gumbel = Program.GUMBEL if device is None else ppot.utils.gumbel_on(device)
         self.device = "cpu" if device is None else device
         self.actual_values = actual_values
         self.tok_positions = pos
+
+    def reset_gumbel(self):
+        self.gumbel = torch.distributions.Gumbel(0, 1)
 
     def to(self, device: str):
         if device == self.device: return self

@@ -3,6 +3,8 @@ import torch, transformers, numpy as np
 from collections import namedtuple
 import ppot.program, ppot.utils
 
+NEWER_TRANSFORMERS = transformers.__version__ > "4.53.0"
+
 CompactLogits = namedtuple('CompactLogits', ['token_log_prob', 'supp_logits', 'supp_ids'])
 """
 Compact logit representation storing only what programs() needs.
@@ -35,7 +37,7 @@ def get_token_pos(token_ids: torch.LongTensor, processor: transformers.AutoProce
     """
     tok = processor if ppot.utils.is_tokenizer(processor) else processor.tokenizer
     # Tokens as strings (here we don't ignore special tokens, which might matter in the future).
-    S = [tok.batch_decode(x) for x in token_ids]
+    S = [tok.batch_decode(x.reshape(-1, 1) if NEWER_TRANSFORMERS else x) for x in token_ids]
     # Length of tokens.
     L = np.array([list(map(len, x)) for x in S])
     # Cumulative sums of lengths, which give the (end) position of the token.
@@ -118,7 +120,7 @@ def programs(token_ids: torch.LongTensor, logits: torch.FloatTensor,
 
     for i, (T, P) in enumerate(zip(token_ids, pos)):
         # Prepare code as a formatted string.
-        tokens = tok.batch_decode(T, skip_special_tokens=True)
+        tokens = tok.batch_decode(T.reshape(-1, 1) if NEWER_TRANSFORMERS else T, skip_special_tokens=True)
         real_tokens = []
         for j, t in enumerate(tokens):
             tokens[j] = t.replace("{", "{{").replace("}", "}}")

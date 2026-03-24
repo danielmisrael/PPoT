@@ -179,3 +179,8 @@ def timeout(t: int):
         signal.alarm(t)
         yield
         signal.alarm(0)
+
+def free():
+    torch.cuda.empty_cache()
+    import gc
+    gc.collect()

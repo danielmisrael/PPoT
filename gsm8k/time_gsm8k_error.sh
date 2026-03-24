@@ -25,8 +25,7 @@ for model_name in "${model_names[@]}"; do
                     --num-llm-samples $i \
                     --num-examples 20 \
                     --suffix fast_$k \
-                    --shuffle \
-                    --report-save-path $1
+                    --shuffle
             done
         done
     done

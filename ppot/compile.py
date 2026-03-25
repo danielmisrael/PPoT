@@ -14,6 +14,8 @@ Compact logit representation storing only what programs() needs.
 Reduces CPU transfer from ~1.8GB to ~1MB per example.
 """
 
+NEWER_TRANSFORMERS = transformers.__version__ > "4.53.0"
+
 def get_token_pos(token_ids: torch.LongTensor, processor: transformers.AutoProcessor,
                   rule: str = r"(?<!(?:[a-df-zA-DF-Z_][0-9]*)|(?:[eE][eE]+[0-9]*)|(?:#.*))([0-9])") -> list:
     """
@@ -105,7 +107,6 @@ def programs(token_ids: torch.LongTensor, logits: torch.FloatTensor,
         pos, supp = joint_positions, joint_supp
 
     PP = []
-    
 
     # Compute loglikelihoods.
     M = torch.isin(token_ids, torch.tensor(tok.all_special_ids)) # special tokens
@@ -144,7 +145,7 @@ def programs(token_ids: torch.LongTensor, logits: torch.FloatTensor,
         else: PP.append(ppot.program.Program(C, X, L_supp, supp[i], tok, code[i], real_tokens, P))
 
         PP[-1].probs(P, T.shape)
-        
+
     return PP, nLL
 
 

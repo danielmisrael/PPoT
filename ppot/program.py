@@ -59,7 +59,7 @@ class Program:
         V = [self.supp[i][x.item()] for i, x in enumerate(S)]
         # Output code.
         return self.code.format(*V)
-    
+
     def sample_program_constraint(self, t:float=1.0) -> str:
         "Returns a deterministic program sampled from this probabilistic program conditioned on not being the same program"
         # breakpoint()
@@ -81,7 +81,7 @@ class Program:
         log_cum_prod = torch.sum(logits_actual_value) # probability of LLM assignment
 
         # in this sample list, False indicates change the variable, True indicates keep the variable same
-        # the following code figures out which random variable needs to change  
+        # the following code figures out which random variable needs to change
         sample = []
         independent = False
         for i in range(logits_actual_value.shape[0]):
@@ -135,7 +135,7 @@ class Program:
         V = [self.supp[i][x.item()] for i, x in enumerate(S)]
         r = self.code.format(*V)
         return [r] if as_list else r
-    
+
     def probs(self, pos: list, output_len: int):
         t: float = 1.0
         if self.homogenous:
@@ -163,6 +163,8 @@ class Program:
             entropy_ph[position] = prob_change[idx]
         self.entropy_ph = entropy_ph
 
+    def reset_gumbel(self):
+        self.gumbel = torch.distributions.Gumbel(0, 1)
 
 class USPP(Program):
     "Union of Singleton Probabilistic Programs."
@@ -197,7 +199,6 @@ class USPP(Program):
         V[X] = self.supp[X][x]
         # Output code.
         return self.code.format(*V)
-
 
 class SubsetProgram:
     """A probabilistic program based on subset resampling of a token sequence.
@@ -246,7 +247,7 @@ class SubsetProgram:
         where the sampled token is found get removed, so the result can be shorter.
         """
         # For 3-token sequences [a, b, c] starting at i=1, the only sequence
-        # different from the original is [a, c] — handle it directly. 
+        # different from the original is [a, c] — handle it directly.
         # I don't agree with this, since the second token consists of the bracket
         if atleastone_constraint and len(self.target_tokens) == 3:
             return [self.target_tokens[0], self.target_tokens[2]]

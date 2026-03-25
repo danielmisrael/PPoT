@@ -67,7 +67,8 @@ def get_save_path(out_path: str, model_name: str, args, append: str = None) -> s
     return save_path
 
 def generate_code_for_image(model: transformers.AutoModelForCausalLM, processor: AutoProcessor,
-                            image_path: str, instruction: str | None, **kwargs) -> tuple:
+                            image_path: str, instruction: str | None,
+                            num_return_sequences: int = 1, temperature: float = 1.0, **kwargs) -> tuple:
     """Generate code for a single image"""
 
     if instruction is None:
@@ -105,17 +106,19 @@ def generate_code_for_image(model: transformers.AutoModelForCausalLM, processor:
     inputs = inputs.to("cuda")
 
     # Inference: Generation of the output
+    gen_kwargs = {"do_sample": False} if temperature == 0 or num_return_sequences == 1 else \
+        {"top_p": 1.0, "top_k": 0, "do_sample": True}
     with torch.no_grad():
         out = model.generate(
             **inputs,
-            top_p=1.0,
-            top_k=0,
+            **gen_kwargs,
             max_new_tokens=2048,
             return_dict_in_generate=True,
             output_logits=True,
             # output_scores=True, # output_scores correspond to the true logits the model is sampling from
             repetition_penalty=1.0, # in this case scores and logits are the same
-            **kwargs # contains do_sample=False, temperature
+            temperature=temperature,
+            **kwargs,
         )
         generated_ids_trimmed = out.sequences[:,inputs.input_ids.numel():].cpu()
         output_text = processor.batch_decode(
@@ -165,7 +168,7 @@ def evaluate_programs(to_run: list, gt_code: str) -> list:
 
         text_match_scores = []
         for P in procs:
-            try: r = P[0].get(60) # 30 seconds timeout
+            try: r = P[0].get(60)
             except Exception as exc:
                 r = 0
                 print(">>>>>>>>>", exc)
@@ -259,8 +262,7 @@ def main():
             S, I, L = generate_code(idx, item, model, processor, image_path, save_path,
                         direct=args.direct,
                         temperature=1.0 if args.temperature == 0 else args.temperature,
-                        num_return_sequences=1 if args.temperature == 0 else args.num_llm_samples,
-                        do_sample=args.temperature > 0)
+                        num_return_sequences=1 if args.temperature == 0 else args.num_llm_samples)
 
             # Compile probabilistic programs
             PP, LL = ppot.compile.programs(I, L, processor, code=S)
@@ -283,7 +285,7 @@ def main():
             # Evaluate the llm generated programs
             llm_scores = evaluate_programs(all_S[idx], item["code"])
             llm_scores = np.array(llm_scores).flatten()
-            max_llm_score = max(llm_scores)
+            max_llm_score = np.max(llm_scores)
 
             max_score, argmax_program = sample_from_probabilistic_programs(all_PP[idx], item["code"],
                                                                          args.num_samples,

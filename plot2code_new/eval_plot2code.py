@@ -118,6 +118,7 @@ def generate_code_for_image(model: transformers.AutoModelForCausalLM, processor:
             # output_scores=True, # output_scores correspond to the true logits the model is sampling from
             repetition_penalty=1.0, # in this case scores and logits are the same
             temperature=temperature,
+            num_return_sequences=num_return_sequences,
             **kwargs,
         )
         generated_ids_trimmed = out.sequences[:,inputs.input_ids.numel():].cpu()
@@ -190,7 +191,8 @@ def example_programs(raw_programs: list, raw_scores: list, sample_programs: list
 
     return triples
 
-def sample_from_probabilistic_programs(PP: list, gt_code: str, num_samples: int, pp_temp: float) -> list:
+def sample_from_probabilistic_programs(PP: list, gt_code: str, num_samples: int, pp_temp: float,
+                                       return_scores: bool = False) -> list:
     """
     Sample from probabilistic programs and evaluate them with respect to the actual image.
     It returns statistics of the results
@@ -200,8 +202,9 @@ def sample_from_probabilistic_programs(PP: list, gt_code: str, num_samples: int,
         to_run_sample.extend(_sample_task(PP[i], False, num_samples, pp_temp))
         to_run_sample.extend(_get_raw(PP[i]))
     text_match_scores = evaluate_programs(to_run_sample, gt_code)
-    print(text_match_scores)
-    return np.max(text_match_scores), to_run_sample[np.argmax(text_match_scores)]
+    retval = (np.max(text_match_scores), to_run_sample[np.argmax(text_match_scores)])
+    if return_scores: return *retval, text_match_scores
+    return retval
 
 SUPP_MODELS = ["Qwen/Qwen2.5-VL-3B-Instruct",
                "Qwen/Qwen2.5-VL-1B-Instruct",
@@ -287,9 +290,10 @@ def main():
             llm_scores = np.array(llm_scores).flatten()
             max_llm_score = np.max(llm_scores)
 
-            max_score, argmax_program = sample_from_probabilistic_programs(all_PP[idx], item["code"],
-                                                                         args.num_samples,
-                                                                         args.program_temperature)
+            max_score, argmax_program = sample_from_probabilistic_programs(all_PP[idx],
+                                                                           item["code"],
+                                                                           args.num_samples,
+                                                                           args.program_temperature)
             better = None
             if (max_score > max_llm_score):
                 print(f"Example {idx} - Probabilistic program outperforms LLM generated code: {max_score} vs {max_llm_score}")

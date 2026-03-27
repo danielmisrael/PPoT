@@ -25,7 +25,8 @@ if __name__ == "__main__":
     parser.add_argument("--sampling-device", type=str, default="cuda:0")
     parser.add_argument("--direct", action="store_true", help="Don't use instruction")
     parser.add_argument("--no-model-loading", action="store_true", default=False)
-    parser.add_argument("--program-samples", default=[0, 1, 5, 10, 20], nargs="+", type=int)
+    parser.add_argument("--program-samples", default=[0, 1, 5, 10, 15, 20], nargs="+", type=int)
+    parser.add_argument("--skip-evaluation", action="store_true", default=False)
     args = parser.parse_args()
 
     ppot.utils.seed(args.seed)
@@ -36,7 +37,8 @@ if __name__ == "__main__":
 
     # Load model and processor
     if not args.no_model_loading:
-        model, processor = plot2code_new.eval_plot2code.load_model_and_processor(model_name)
+        model, processor = plot2code_new.eval_plot2code.load_model_and_processor(model_name,
+                                                                                 device=args.sampling_device)
 
     dataset = ppot.utils.prepare_data("TencentARC/Plot2Code", num_examples,
                                       lambda x: "matplotlib" in x["url"], split="test")
@@ -75,7 +77,17 @@ if __name__ == "__main__":
     if not args.no_model_loading:
         del model; ppot.utils.free()
 
+
+    if args.skip_evaluation:
+        import sys
+        sys.exit()
+
     scores = []
+
+    n = args.program_samples[-1]+1
+    all_indices_foreach = [np.array([n*i+m for i in range(n-1) for m in range(args.program_samples[j]+1)]) \
+                           for j in range(len(args.program_samples))]
+    indices_foreach = [[s[0:(args.program_samples[i]+1)*(k+1)] for k in range(n-1)] for i, s in enumerate(all_indices_foreach)]
 
     for idx, item in enumerate(tqdm.tqdm(dataset, desc="Evaluating")):
         if os.path.isfile(ckpt_path := f"{save_path}/ckpt/eval_{idx}.pkl"):
@@ -90,14 +102,14 @@ if __name__ == "__main__":
             )
             # This is a matrix where each column refers to n, and each row refers to k.
             # Entries in the matrix are the max score for (k, n).
-            max_pp_scores = np.array([[np.max(pp_scores[k*(n+1):(k+1)*(n+1)]) \
-                                       for n in args.program_samples] \
-                                      for k in range(args.program_samples[-1])])
+            max_pp_scores = np.array([[np.max(pp_scores[i]) for i in indices_foreach[j]] \
+                                      for j in range(len(args.program_samples))])
 
             with open(ckpt_path, "wb") as f: pickle.dump(max_pp_scores, f)
         scores.append(max_pp_scores)
 
     scores = np.array(scores)
+    # Rows are LLM samples, columns are PP samples
     mean_scores = np.mean(scores, axis=0) # Take the mean score across all examples.
 
     with open(f"{save_path}/results.pkl", "wb") as f: pickle.dump({

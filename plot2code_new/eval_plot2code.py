@@ -24,15 +24,15 @@ def encode_image_to_base64(image_path: str) -> str:
     with open(image_path, "rb") as image_file:
         return base64.b64encode(image_file.read()).decode('utf-8')
 
-def load_model_and_processor(model_name: str = "Qwen/Qwen2.5-VL-3B-Instruct"):
+def load_model_and_processor(model_name: str = "Qwen/Qwen2.5-VL-3B-Instruct", device: str = "cuda"):
     """Load the model and processor"""
-    print(f"Loading model: {model_name}")
+    print(f"Loading model: {model_name} on device {device}")
 
     # Load model with explicit CUDA settings
     model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
         model_name,
         torch_dtype=torch.float16,
-        device_map="cuda",
+        device_map=device,
         trust_remote_code=True
     )
 
@@ -199,11 +199,11 @@ def sample_from_probabilistic_programs(PP: list, gt_code: str, num_samples: int,
     """
     to_run_sample = []
     for i in range(len(PP)):
-        to_run_sample.extend(_sample_task(PP[i], False, num_samples, pp_temp))
         to_run_sample.extend(_get_raw(PP[i]))
+        to_run_sample.extend(_sample_task(PP[i], False, num_samples, pp_temp))
     text_match_scores = evaluate_programs(to_run_sample, gt_code)
     retval = (np.max(text_match_scores), to_run_sample[np.argmax(text_match_scores)])
-    if return_scores: return *retval, text_match_scores
+    if return_scores: return *retval, np.array(text_match_scores)
     return retval
 
 SUPP_MODELS = ["Qwen/Qwen2.5-VL-3B-Instruct",
@@ -238,7 +238,7 @@ def main():
 
     # Load model and processor
     if not args.no_model_loading:
-        model, processor = load_model_and_processor(model_name)
+        model, processor = load_model_and_processor(model_name, device=args.sampling_device)
 
     dataset = ppot.utils.prepare_data("TencentARC/Plot2Code", num_examples,
                                       lambda x: "matplotlib" in x["url"], split="test")

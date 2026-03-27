@@ -18,7 +18,7 @@ Usage:
         --num-llm-samples 20 --num-examples 10
 """
 import argparse, json, time
-import transformers, datasets, torch
+import transformers, datasets, torch # type: ignore
 import ppot.utils, ppot.compile
 from gsm8k.eval_gsm8k_fast import (
     template, sample_pp, get_rule_supp,
@@ -163,8 +163,8 @@ if __name__ == "__main__":
     _sync()
     print("Warmup done.\n")
 
-    times = {"baseline": [], "old_ppot": [], "new_ppot": []}
-    phase_times = {
+    times: dict[str, list] = {"baseline": [], "old_ppot": [], "new_ppot": []}
+    phase_times: dict[str, dict[str, list]] = {
         "old_ppot": {"llm": [], "compile": [], "pp_sample": []},
         "new_ppot": {"llm": [], "compile": [], "pp_sample": []},
     }
@@ -209,6 +209,6 @@ if __name__ == "__main__":
     print(f"  {'baseline (no ppot)':<35} {avg['baseline']:.3f}s")
     for method in ("old_ppot", "new_ppot"):
         a = avg[method]
-        ph = {k: sum(v) / n for k, v in phase_times[method].items()}
+        phs: dict[str, float] = {k: sum(v) / n for k, v in phase_times[method].items()}
         print(f"  {method:<35} {a:.3f}s  overhead={a/avg['baseline']:.2f}x"
-              f"  [llm={ph['llm']:.3f} compile={ph['compile']:.3f} pp={ph['pp_sample']:.3f}]")
+              f"  [llm={phs['llm']:.3f} compile={phs['compile']:.3f} pp={phs['pp_sample']:.3f}]")

@@ -1,4 +1,4 @@
-import regex
+import regex # type: ignore
 import torch, transformers, numpy as np
 from collections import namedtuple
 import ppot.program, ppot.utils
@@ -35,7 +35,7 @@ def get_token_pos(token_ids: torch.LongTensor, processor: transformers.AutoProce
     """
     tok = processor if ppot.utils.is_tokenizer(processor) else processor.tokenizer
     # Tokens as strings (here we don't ignore special tokens, which might matter in the future).
-    S = [tok.batch_decode(x) for x in token_ids]
+    S = [tok.batch_decode(x) for x in token_ids] # type: ignore
     # Length of tokens.
     L = np.array([list(map(len, x)) for x in S])
     # Cumulative sums of lengths, which give the (end) position of the token.
@@ -52,7 +52,7 @@ def get_token_pos(token_ids: torch.LongTensor, processor: transformers.AutoProce
 
 
 def programs(token_ids: torch.LongTensor, logits: torch.FloatTensor,
-             processor: transformers.AutoProcessor, code: str, rules: list = None, supp: list = None, only_one: bool = False,
+             processor: transformers.AutoProcessor, code: str, rules: Optional[list] = None, supp: Optional[list] = None, only_one: bool = False,
              **kwargs) -> tuple:
     """
     Get probabilistic programs from the generated programs.
@@ -81,7 +81,7 @@ def programs(token_ids: torch.LongTensor, logits: torch.FloatTensor,
         for r in rules:
             pos.append(get_token_pos(token_ids, processor, rule=r, **kwargs))
         pos = [list(row) for row in zip(*pos)]
-    tok = processor if ppot.utils.is_tokenizer(processor) else processor.tokenizer
+    tok = processor if ppot.utils.is_tokenizer(processor) else processor.tokenizer # type: ignore
 
     if supp is None: # if supp is None then make digits the support
         S = tok([str(i) for i in range(10)], return_tensors="pt").input_ids.flatten()
@@ -106,7 +106,7 @@ def programs(token_ids: torch.LongTensor, logits: torch.FloatTensor,
     
 
     # Compute loglikelihoods.
-    M = torch.isin(token_ids, torch.tensor(tok.all_special_ids)) # special tokens
+    M = torch.isin(token_ids, torch.tensor(tok.all_special_ids)) # special tokens # type: ignore
     is_compact = isinstance(logits, CompactLogits)
     if is_compact:
         supp_id_lookup = {int(v): k for k, v in enumerate(logits.supp_ids.tolist())}

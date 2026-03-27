@@ -1,9 +1,10 @@
 import argparse, json, os, math, numbers, pickle
-import transformers, datasets, torch, tqdm
+import transformers, datasets, torch, tqdm # type: ignore
 import ppot.utils, scripts.eval_entropy_programs, ppot.program, ppot.compile
 from ppot.compile import CompactLogits
 from transformers import LogitsProcessorList, LogitsProcessor
 import time
+from typing import Optional, Any
 
 
 class _CompactLogitsCapture(LogitsProcessor):
@@ -17,12 +18,12 @@ class _CompactLogitsCapture(LogitsProcessor):
     """
     def __init__(self, supp_ids: torch.LongTensor):
         self.supp_ids = supp_ids         # (|supp|,) on GPU
-        self._supp_cpu = []              # list of (batch, |supp|) CPU tensors
-        self._tlp_cpu = []               # list of (batch,) CPU tensors
-        self._prev_lp = None             # (batch, vocab) log_softmax from previous step
+        self._supp_cpu: list = []              # list of (batch, |supp|) CPU tensors
+        self._tlp_cpu: list = []               # list of (batch,) CPU tensors
+        self._prev_lp: Optional[torch.Tensor] = None             # (batch, vocab) log_softmax from previous step
 
     def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
-        lp = torch.log_softmax(scores, dim=-1)
+        lp: torch.Tensor = torch.log_softmax(scores, dim=-1)
         if self._prev_lp is not None:
             prev_token = input_ids[:, -1]   # token sampled at t-1
             self._tlp_cpu.append(
@@ -44,7 +45,7 @@ class _CompactLogitsCapture(LogitsProcessor):
 
 """This file generates entropy pages for the dataset GSM8k"""
 
-def PROMPT(question: str = None, unit: str = None, **kwargs) -> str:
+def PROMPT(question: Optional[str] = None, unit: Optional[str] = None, **kwargs) -> str:
     return "Generate a Python function `compute_answer` with no arguments that computes the " \
     "needed calculations and returns a number as the answer to the problem below. There " \
     "should be no comments in the code. Only generate the Python function `compute_answer`, " \
@@ -52,42 +53,45 @@ def PROMPT(question: str = None, unit: str = None, **kwargs) -> str:
     "in the program but without " \
     f"any comments. \n\nProblem: {question}"
 
-def template(tok: transformers.AutoTokenizer, X: dict) -> transformers.BatchEncoding:
-    if "Qwen2.5-Coder" in tok.name_or_path:
-        E = tok.apply_chat_template([{"role": "system", "content": "You are Qwen, created by Alibaba Cloud. You are a helpful assistant."},
+def template(tok: transformers.AutoTokenizer, X: dict) -> tuple[str, transformers.BatchEncoding]:
+    if "Qwen2.5-Coder" in tok.name_or_path: # type: ignore
+        E = tok.apply_chat_template([{"role": "system", "content": "You are Qwen, created by Alibaba Cloud. You are a helpful assistant."}, # type: ignore
                                      {"role": "user", "content": PROMPT(**X)}],
                                     tokenize=False, add_generation_prompt=True)
     else: raise NotImplementedError
-    return E, tok([E], return_tensors="pt")
+    return E, tok([E], return_tensors="pt") # type: ignore
 
 def sample_llm_compact(model: transformers.AutoModelForCausalLM, tok: transformers.AutoTokenizer,
                        X: dict, num_samples: int, supp_ids: torch.LongTensor,
-                       temperature: float = None, **kwargs) -> (torch.LongTensor, CompactLogits, list):
+                       temperature: Optional[float] = None, **kwargs) -> tuple[torch.LongTensor, CompactLogits, list]:
     """Generate samples and return a CompactLogits representation (~1MB vs ~1.8GB).
 
     Uses a LogitsProcessor that captures only supp_logits + token_log_prob at each
     step, with non-blocking CPU transfers overlapping with the next GPU forward pass.
     """
     _, enc = template(tok, X)
+    temp_kwargs: dict[str, Any]
     if temperature == 0.0:
         temp_kwargs = {"do_sample": False, "num_return_sequences": 1}
     else:
         temp_kwargs = {"do_sample": True, "temperature": temperature, "num_return_sequences": num_samples}
 
-    cap = _CompactLogitsCapture(supp_ids.to(model.device))
-    O = model.generate(**enc.to(model.device), return_dict_in_generate=True, output_logits=False,
+    cap = _CompactLogitsCapture(supp_ids.to(model.device)) # type: ignore
+    O = model.generate(**enc.to(model.device), return_dict_in_generate=True, output_logits=False, # type: ignore
                        logits_processor=LogitsProcessorList([cap]),
                        repetition_penalty=1.0, top_p=1.0, **temp_kwargs, **kwargs)
     k = enc.input_ids.numel()
     I = O.sequences[:, k:].cpu()
 
     supp_logits, token_log_prob = cap.finalize(O.sequences[:, -1])
-    S = tok.batch_decode(I, skip_special_tokens=True)
+    S = tok.batch_decode(I, skip_special_tokens=True) # type: ignore
     return I, CompactLogits(token_log_prob=token_log_prob, supp_logits=supp_logits, supp_ids=supp_ids), S
 
 
-def execute(P: str, val_on_err = None, timeout: float = 10) -> float:
-    y, L, G = None, {}, {}
+def execute(P: str, val_on_err = None, timeout: int = 10) -> Optional[float]:
+    y: Optional[float] = None
+    L: dict = {}
+    G: dict = {}
     try: start = P.index("```python")+9
     except: start = None
     try: end = P.rindex("```")
@@ -120,7 +124,7 @@ def pass_at_k(S: list, timeout: int, gt: float) -> bool:
     return False
 
 def sample_pp(P: list, num_samples: int, pp_temperature: float = 1.0, ignore: bool = False, diff_constraint = False,
-              debug: bool = False, **kwargs) -> bool:
+              debug: bool = False, **kwargs) -> list:
     # TODO: Parallelize this
     S = []
     for i in P:
@@ -137,24 +141,24 @@ def get_rule_supp(rule: str, tokenizer: transformers.AutoTokenizer) -> tuple:
 
     if "digit" in rule or "all" in rule:
         rule_list.append(r"(?<!(?:[a-df-zA-DF-Z_][0-9]*)|(?:[eE][eE]+[0-9]*)|(?:#.*))([0-9])")
-        supp.append(tokenizer(["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"], return_tensors="pt").input_ids.flatten())
+        supp.append(tokenizer(["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"], return_tensors="pt").input_ids.flatten()) # type: ignore
     
     if "compare" in rule or "all" in rule:
         rule_list.append(r"(?<!\|)>|<(?!\|)|<=|>=|==|!=")
-        supp.append(tokenizer(["<=", ">=", "==", ">", "<", "!=", " <=", " >=", " ==", " >", " <", " !="], return_tensors="pt").input_ids.flatten())
+        supp.append(tokenizer(["<=", ">=", "==", ">", "<", "!=", " <=", " >=", " ==", " >", " <", " !="], return_tensors="pt").input_ids.flatten()) # type: ignore
     
     if "arithmetic" in rule or "all" in rule:
         rule_list.extend([r"(?<!(?:#.*))(?<!\()([+\-\*/])(?![=/\*])|//(?!=)|\*\*", r"\([+\-]"])
-        supp.extend([tokenizer(["+", "-", "*", "/", "//", "**", " +", " -", " *", " /", " //", " **"], return_tensors="pt").input_ids.flatten(),
-                     tokenizer(["(+", "(-"], return_tensors="pt").input_ids.flatten()])
+        supp.extend([tokenizer(["+", "-", "*", "/", "//", "**", " +", " -", " *", " /", " //", " **"], return_tensors="pt").input_ids.flatten(), # type: ignore
+                     tokenizer(["(+", "(-"], return_tensors="pt").input_ids.flatten()]) # type: ignore
         
     if "augment" in rule or "all" in rule:
         rule_list.append(r"[+\-\*/]=|//=")
-        supp.append(tokenizer(["+=", "-=", "*=", "/=", "//=", " +=", " -=", " *=", " /=", " //="], return_tensors="pt").input_ids.flatten())
+        supp.append(tokenizer(["+=", "-=", "*=", "/=", "//=", " +=", " -=", " *=", " /=", " //="], return_tensors="pt").input_ids.flatten()) # type: ignore
     
     if rule_list == []:
         rule_list = [r"(?<!(?:[a-df-zA-DF-Z_][0-9]*)|(?:[eE][eE]+[0-9]*)|(?:#.*))([0-9])"]
-        supp = [tokenizer(["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"], return_tensors="pt").input_ids.flatten()]
+        supp = [tokenizer(["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"], return_tensors="pt").input_ids.flatten()] # type: ignore
 
     return rule_list, supp
 
@@ -225,14 +229,14 @@ if __name__ == "__main__":
         gt = float(D["answer"][i])
         saved_path = f"{llm_cache_path}/{i}.pkl"
         if os.path.isfile(saved_path):
-            with open(saved_path, "rb") as f:
-                I, L, S = pickle.load(f)
+            with open(saved_path, "rb") as f: # type: ignore
+                I, L, S = pickle.load(f) # type: ignore
                 I, L, S = I[:args.num_llm_samples, ...], L[:args.num_llm_samples, ...], S[:args.num_llm_samples]
         else:
             I, L, S = sample_llm_compact(model, tokenizer, X, args.num_llm_samples, supp_ids,
                                          temperature=args.temperature, max_new_tokens=args.max_new_tokens)
             if args.llm_cache:
-                with open(saved_path, "wb") as f: pickle.dump((I, L, S), f)
+                with open(saved_path, "wb") as f: pickle.dump((I, L, S), f) # type: ignore
 
         if args.save_html:
             H = scripts.eval_entropy_programs.entropy(L)

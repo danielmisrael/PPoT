@@ -97,7 +97,7 @@ def load(path: str) -> (torch.FloatTensor, torch.LongTensor, torch.FloatTensor):
 def html(H: torch.FloatTensor, I: torch.LongTensor, L: torch.FloatTensor,
          tokenizer: transformers.AutoTokenizer, toc_len: int = 0, instruction: str = None,
          ground_truth_img: PIL.Image = None, ground_truth_text: str = None,
-         return_vals: list = None, **kwargs) -> list:
+         return_vals: list = None, **kwargs) -> str:
     T = [tokenizer.batch_decode(X) for X in I]
     body = ""
     H_norm = H/torch.max(H, dim=-1, keepdim=True).values

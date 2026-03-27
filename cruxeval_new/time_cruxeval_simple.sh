@@ -11,9 +11,9 @@ model_names=(
 
 
 for model_name in "${model_names[@]}"; do
-    for i in {1..20}; do
+    for i in {1..20..2}; do
         echo "Running: $model_name $i $j"
-        CUDA_VISIBLE_DEVICES=0 python3 -m cruxeval_new.time_cruxeval_simple \
+        CUDA_VISIBLE_DEVICES=1 python3 -m cruxeval_new.time_cruxeval_simple \
             --model "$model_name" \
             --temperature 0.7 \
             --different-constraint \

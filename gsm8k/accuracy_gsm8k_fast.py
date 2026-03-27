@@ -1,12 +1,12 @@
 import argparse, json, os, math, numbers, pickle
-import transformers, datasets, torch, tqdm
+import transformers, datasets, torch, tqdm # type: ignore
 import ppot.utils, scripts.eval_entropy_programs, ppot.program, ppot.compile
 from gsm8k.eval_gsm8k import PROMPT, template, sample_llm, execute, pass_at_k, get_rule_supp
 from gsm8k.eval_gsm8k_fast import sample_llm_compact
 import time
 
 def sample_pp(P: list, num_samples: int, pp_temperature: float = 1.0, ignore: bool = False, diff_constraint = False,
-              debug: bool = False, **kwargs) -> bool:
+              debug: bool = False, **kwargs) -> list:
     S = []
     for j in P:
         programs = [j.raw_program]
@@ -77,7 +77,8 @@ if __name__ == "__main__":
     else:
         D = datasets.Dataset.load_from_disk(args.dataset)
 
-    pass_pp, pass_llm = [], []
+    pass_pp: list = []
+    pass_llm: list = []
 
     # Dataset, creating directories, getting rules
     pbar = tqdm.tqdm(D, desc="Example", dynamic_ncols=True)
@@ -101,7 +102,7 @@ if __name__ == "__main__":
                                      temperature=args.temperature,
                             max_new_tokens=args.max_new_tokens)
         if args.llm_cache:
-            with open(saved_path, "wb") as f: pickle.dump((I, L, S), f)
+            with open(saved_path, "wb") as f: pickle.dump((I, L, S), f) # type: ignore
 
         if args.save_html:
             H = scripts.eval_entropy_programs.entropy(L)

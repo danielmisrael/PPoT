@@ -53,7 +53,7 @@ if __name__ == "__main__":
     T_PP = [[[] for _ in range(args.program_samples[-1])] for _ in range(args.repetitions)]
 
     # Generate code for each sample
-    pbar = tqdm.tqdm(range(args.repetitions*args.program_samples[-1]*args.num_examples),
+    pbar = tqdm.tqdm(range(args.repetitions*(args.program_samples[-1]//args.stride)*args.num_examples),
                      desc="Timing LLM sampling and compilation")
     for j in range(args.repetitions):
         for k in range(0, args.program_samples[-1], args.stride):
@@ -96,7 +96,7 @@ if __name__ == "__main__":
     T_sampling = [[[[] for _ in args.program_samples] for _ in range(args.program_samples[-1])] for _ in range(args.repetitions)]
     T_all = [[[[] for _ in args.program_samples] for _ in range(args.program_samples[-1])] for _ in range(args.repetitions)]
 
-    pbar = tqdm.tqdm(range(args.repetitions*args.program_samples[-1]*len(args.program_samples)*args.num_examples),
+    pbar = tqdm.tqdm(range(args.repetitions*(args.program_samples[-1]//args.stride)*len(args.program_samples)*args.num_examples),
                      desc="Timing sampling")
     for j in range(args.repetitions):
         for k in range(0, args.program_samples[-1], args.stride):

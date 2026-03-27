@@ -27,6 +27,7 @@ if __name__ == "__main__":
     parser.add_argument("--seed", default=0, type=int)
     parser.add_argument("--repetitions", default=10, type=int)
     parser.add_argument("--skip-evaluation", action="store_true", default=False)
+    parser.add_argument("--stride", default=2, type=int)
     args = parser.parse_args()
 
     ppot.utils.seed(args.seed)
@@ -55,9 +56,9 @@ if __name__ == "__main__":
     pbar = tqdm.tqdm(range(args.repetitions*args.program_samples[-1]*args.num_examples),
                      desc="Timing LLM sampling and compilation")
     for j in range(args.repetitions):
-        for k in range(args.program_samples[-1]):
+        for k in range(0, args.program_samples[-1], args.stride):
             for idx, item in enumerate(dataset):
-                if os.path.isfile(ckpt_path := f"{save_path}/ckpt/gen_{j}_{k}_{idx}.pkl"):
+                if os.path.isfile(ckpt_path := f"{save_path}/ckpt/gen_{j}_{k+1}_{idx}.pkl"):
                     with open(ckpt_path, "rb") as f: PP, S, t_llm, t_pp = pickle.load(f)
                     for P in PP: P.reset_gumbel()
                 else:
@@ -70,7 +71,7 @@ if __name__ == "__main__":
                     S, I, L = plot2code_new.eval_plot2code.generate_code(idx, item, model, processor, image_path, save_path,
                                 direct=args.direct,
                                 temperature=1.0 if args.temperature == 0 else args.temperature,
-                                num_return_sequences=k)
+                                num_return_sequences=k+1)
                     t_llm = time.time()-t_start
 
                     # Compile probabilistic programs
@@ -98,10 +99,10 @@ if __name__ == "__main__":
     pbar = tqdm.tqdm(range(args.repetitions*args.program_samples[-1]*len(args.program_samples)*args.num_examples),
                      desc="Timing sampling")
     for j in range(args.repetitions):
-        for k in range(args.program_samples[-1]):
+        for k in range(0, args.program_samples[-1], args.stride):
             for i, n in enumerate(args.program_samples):
                 for idx, item in enumerate(dataset):
-                    if os.path.isfile(ckpt_path := f"{save_path}/ckpt/eval_{j}_{k}_{n}_{idx}.pkl"):
+                    if os.path.isfile(ckpt_path := f"{save_path}/ckpt/eval_{j}_{k+1}_{n}_{idx}.pkl"):
                         with open(ckpt_path, "rb") as f: t_sampling, t_all = pickle.load(f)
                     else:
                         t_start = time.time()

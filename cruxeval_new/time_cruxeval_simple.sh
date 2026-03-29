@@ -19,7 +19,7 @@ for model_name in "${model_names[@]}"; do
             --different-constraint \
             --num-llm-samples $i \
             --num-examples 20 \
-            --suffix "simple_$k" \
+            --suffix "simple2_$k" \
             --shuffle
     done
 done

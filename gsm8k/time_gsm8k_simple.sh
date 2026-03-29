@@ -13,7 +13,7 @@ model_names=(
 for model_name in "${model_names[@]}"; do
     for i in {1..20..2}; do
         echo "Running: $model_name $i $j"
-        CUDA_VISIBLE_DEVICES=1 python3 -m gsm8k.time_gsm8k_simple \
+        CUDA_VISIBLE_DEVICES=0 python3 -m gsm8k.time_gsm8k_simple \
             --dataset gsm8k/gsm8k.json \
             --model "$model_name" \
             --temperature 0.7 \
@@ -21,7 +21,7 @@ for model_name in "${model_names[@]}"; do
             --different-constraint \
             --num-llm-samples $i \
             --num-examples 20 \
-            --suffix simple_$i \
+            --suffix simple2_$i \
             --shuffle
     done
 done

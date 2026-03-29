@@ -2,6 +2,7 @@ import regex # type: ignore
 import torch, transformers, numpy as np
 from collections import namedtuple
 import ppot.program, ppot.utils
+from typing import Optional
 
 CompactLogits = namedtuple('CompactLogits', ['token_log_prob', 'supp_logits', 'supp_ids'])
 """

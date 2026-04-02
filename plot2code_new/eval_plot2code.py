@@ -3,7 +3,7 @@ import os, json, base64, re, argparse, pickle, gc, multiprocessing, subprocess, 
 import torch, transformers, numpy as np, dill, tqdm
 from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor
 from qwen_vl_utils import process_vision_info
-import ppot.compile, ppot.utils
+import ppot.compile, ppot.utils, gsm8k.eval_gsm8k_fast
 
 dill.Pickler.dumps, dill.Pickler.loads = dill.dumps, dill.loads
 multiprocessing.reduction.ForkingPickler = dill.Pickler
@@ -24,17 +24,20 @@ def encode_image_to_base64(image_path: str) -> str:
     with open(image_path, "rb") as image_file:
         return base64.b64encode(image_file.read()).decode('utf-8')
 
-def load_model_and_processor(model_name: str = "Qwen/Qwen2.5-VL-3B-Instruct", device: str = "cuda"):
+def load_model_and_processor(model_name: str = "Qwen/Qwen2.5-VL-3B-Instruct", device: str = "cuda",
+                             no_model_loading: bool = False):
     """Load the model and processor"""
     print(f"Loading model: {model_name} on device {device}")
 
     # Load model with explicit CUDA settings
-    model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-        model_name,
-        torch_dtype=torch.float16,
-        device_map=device,
-        trust_remote_code=True
-    )
+    if no_model_loading: model = None
+    else:
+        model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+            model_name,
+            torch_dtype=torch.float16,
+            device_map=device,
+            trust_remote_code=True
+        )
 
     # Load processor
     processor = AutoProcessor.from_pretrained(model_name)
@@ -58,8 +61,9 @@ def read_jsonl_file(file_path: str) -> str:
 def get_save_path(out_path: str, model_name: str, args, append: str = None) -> str:
     """Get save path for generated code"""
     model_name = model_name.split("/")[-1]
-    save_path = os.path.join(out_path, model_name if append is None else f"{model_name}_{append}",
-                             f"t{args.temperature}_n{args.num_examples}_s{args.num_samples}_z{args.num_llm_samples}_p{args.program_temperature}_d{args.direct}_u{args.uspp}_r{args.seed}")
+    info_str = f"t{args.temperature}_n{args.num_examples}_s{args.num_samples}_z{args.num_llm_samples}_p{args.program_temperature}_d{args.direct}_u{args.uspp}_r{args.seed}"
+    if args.include_arithmetic_operators: info_str += "_arithm"
+    save_path = os.path.join(out_path, model_name if append is None else f"{model_name}_{append}", info_str)
     os.makedirs(save_path, exist_ok=True)
     os.makedirs(os.path.join(save_path, "imgs"), exist_ok=True)
     os.makedirs(os.path.join(save_path, "data"), exist_ok=True)
@@ -68,7 +72,9 @@ def get_save_path(out_path: str, model_name: str, args, append: str = None) -> s
 
 def generate_code_for_image(model: transformers.AutoModelForCausalLM, processor: AutoProcessor,
                             image_path: str, instruction: str | None,
-                            num_return_sequences: int = 1, temperature: float = 1.0, **kwargs) -> tuple:
+                            num_return_sequences: int = 1, temperature: float = 1.0,
+                            return_logits: bool = False, supp_ids: torch.LongTensor = None,
+                            force_sampling: bool = False, **kwargs) -> tuple:
     """Generate code for a single image"""
 
     if instruction is None:
@@ -106,17 +112,22 @@ def generate_code_for_image(model: transformers.AutoModelForCausalLM, processor:
     inputs = inputs.to("cuda")
 
     # Inference: Generation of the output
-    gen_kwargs = {"do_sample": False} if temperature == 0 or num_return_sequences == 1 else \
+    gen_kwargs = {"do_sample": False} if not force_sampling and (temperature == 0 or num_return_sequences == 1) else \
         {"top_p": 1.0, "top_k": 0, "do_sample": True}
+    logits_kwargs = {}
+    if supp_ids is not None and return_logits:
+        cap = gsm8k.eval_gsm8k_fast._CompactLogitsCapture(supp_ids.to(model.device))
+        logits_kwargs = {"logits_processor": transformers.LogitsProcessorList([cap])}
     with torch.no_grad():
         out = model.generate(
             **inputs,
             **gen_kwargs,
             max_new_tokens=2048,
             return_dict_in_generate=True,
-            output_logits=True,
+            output_logits=return_logits,
             # output_scores=True, # output_scores correspond to the true logits the model is sampling from
             repetition_penalty=1.0, # in this case scores and logits are the same
+            **logits_kwargs,
             temperature=temperature,
             num_return_sequences=num_return_sequences,
             **kwargs,
@@ -128,10 +139,16 @@ def generate_code_for_image(model: transformers.AutoModelForCausalLM, processor:
 
     # Extract code
     code = extract_code(output_text)
-    logits = torch.concatenate(tuple(x.cpu() for x in out.logits), dim=-1).reshape(out.logits[0].shape[0], len(out.logits), -1)
-    # scores = torch.concatenate(tuple(x.cpu() for x in out.scores), dim=-1).reshape(out.scores[0].shape[0], len(out.scores), -1)
-
-    return code, generated_ids_trimmed, logits
+    if return_logits:
+        if supp_ids is not None:
+            supp_logits, token_log_prob = cap.finalize(out.sequences[:,-1])
+            logits = ppot.compile.CompactLogits(token_log_prob=token_log_prob,
+                                                supp_logits=supp_logits, supp_ids=supp_ids)
+        else:
+            logits = torch.concatenate(tuple(x.cpu() for x in out.logits), dim=-1).reshape(out.logits[0].shape[0], len(out.logits), -1)
+        # scores = torch.concatenate(tuple(x.cpu() for x in out.scores), dim=-1).reshape(out.scores[0].shape[0], len(out.scores), -1)
+        return code, generated_ids_trimmed, logits
+    else: return code, None, None
 
 def generate_code(idx: int, item: dict, model: transformers.AutoModel,
                          processor: transformers.AutoProcessor, ground_truth_path: str,
@@ -228,6 +245,7 @@ def main():
     parser.add_argument("--pause-for-inspection", action="store_true", default=False,
                         help="Whether to pause for instruction and inspect an example.")
     parser.add_argument("--no-model-loading", action="store_true", default=False)
+    parser.add_argument("--include-arithmetic-operators", action="store_true", default=False)
     args = parser.parse_args()
 
     ppot.utils.seed(args.seed)
@@ -237,8 +255,8 @@ def main():
     num_examples = args.num_examples
 
     # Load model and processor
-    if not args.no_model_loading:
-        model, processor = load_model_and_processor(model_name, device=args.sampling_device)
+    model, processor = load_model_and_processor(model_name, device=args.sampling_device,
+                                                no_model_loading=args.no_model_loading)
 
     dataset = ppot.utils.prepare_data("TencentARC/Plot2Code", num_examples,
                                       lambda x: "matplotlib" in x["url"], split="test")
@@ -247,6 +265,12 @@ def main():
     tag = "direct" if args.direct else "instruct"
     save_path = get_save_path(args.save_dir, model_name, args)
     print(f"Results will be saved to {save_path}")
+
+    if args.include_arithmetic_operators:
+        import gsm8k.eval_gsm8k
+        rules, supp = gsm8k.eval_gsm8k.get_rule_supp("all", processor.tokenizer)
+        compile_kwargs = {"rules": rules, "supp": supp}
+    else: compile_kwargs = {}
 
     all_PP = []
     all_S = []
@@ -268,7 +292,7 @@ def main():
                         num_return_sequences=1 if args.temperature == 0 else args.num_llm_samples)
 
             # Compile probabilistic programs
-            PP, LL = ppot.compile.programs(I, L, processor, code=S)
+            PP, LL = ppot.compile.programs(I, L, processor, code=S, **compile_kwargs)
             with open(ckpt_path, "wb") as f: pickle.dump((PP, S), f)
         all_PP.append(PP)
         all_S.append(S)

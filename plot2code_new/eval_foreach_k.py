@@ -1,12 +1,13 @@
 import argparse, pickle, os
 import tqdm, numpy as np
-import ppot.utils, plot2code_new.eval_plot2code
+import ppot.utils, plot2code_new.eval_plot2code, ppot.compile
 
 def get_save_path(out_path: str, model_name: str, args, append: str = None) -> str:
     """Get save path for generated code"""
     model_name = model_name.split("/")[-1]
-    save_path = os.path.join(out_path, model_name if append is None else f"{model_name}_{append}",
-                             f"t{args.temperature}_n{args.num_examples}_s{'-'.join(map(str, args.program_samples))}_p{args.program_temperature}_d{args.direct}_u{args.uspp}_r{args.seed}")
+    info_str = f"t{args.temperature}_n{args.num_examples}_s{'-'.join(map(str, args.program_samples))}_p{args.program_temperature}_d{args.direct}_u{args.uspp}_r{args.seed}"
+    if args.include_arithmetic_operators: info_str += "_arithm"
+    save_path = os.path.join(out_path, model_name if append is None else f"{model_name}_{append}", info_str)
     os.makedirs(save_path, exist_ok=True)
     os.makedirs(os.path.join(save_path, "imgs"), exist_ok=True)
     os.makedirs(os.path.join(save_path, "data"), exist_ok=True)
@@ -27,6 +28,7 @@ if __name__ == "__main__":
     parser.add_argument("--no-model-loading", action="store_true", default=False)
     parser.add_argument("--program-samples", default=[0, 1, 5, 10, 15, 20], nargs="+", type=int)
     parser.add_argument("--skip-evaluation", action="store_true", default=False)
+    parser.add_argument("--include-arithmetic-operators", action="store_true", default=False)
     args = parser.parse_args()
 
     ppot.utils.seed(args.seed)
@@ -36,9 +38,9 @@ if __name__ == "__main__":
     num_examples = args.num_examples
 
     # Load model and processor
-    if not args.no_model_loading:
-        model, processor = plot2code_new.eval_plot2code.load_model_and_processor(model_name,
-                                                                                 device=args.sampling_device)
+    model, processor = plot2code_new.eval_plot2code.load_model_and_processor(model_name,
+                                                                             device=args.sampling_device,
+                                                                             no_model_loading=args.no_model_loading)
 
     dataset = ppot.utils.prepare_data("TencentARC/Plot2Code", num_examples,
                                       lambda x: "matplotlib" in x["url"], split="test")
@@ -47,6 +49,12 @@ if __name__ == "__main__":
     tag = "direct" if args.direct else "instruct"
     save_path = get_save_path(args.save_dir, model_name, args)
     print(f"Results will be saved to {save_path}")
+
+    if args.include_arithmetic_operators:
+        import gsm8k.eval_gsm8k
+        rules, supp = gsm8k.eval_gsm8k.get_rule_supp("all", processor.tokenizer)
+        compile_kwargs = {"rules": rules, "supp": supp}
+    else: compile_kwargs = {}
 
     all_PP = []
     all_S = []
@@ -65,10 +73,10 @@ if __name__ == "__main__":
             S, I, L = plot2code_new.eval_plot2code.generate_code(idx, item, model, processor, image_path, save_path,
                         direct=args.direct,
                         temperature=1.0 if args.temperature == 0 else args.temperature,
-                        num_return_sequences=args.program_samples[-1])
+                        num_return_sequences=args.program_samples[-1], force_sampling=True)
 
             # Compile probabilistic programs
-            PP, LL = ppot.compile.programs(I, L, processor, code=S)
+            PP, LL = ppot.compile.programs(I, L, processor, code=S, **compile_kwargs)
             with open(ckpt_path, "wb") as f: pickle.dump((PP, S), f)
         all_PP.append(PP)
         all_S.append(S)

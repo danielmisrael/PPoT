@@ -7,7 +7,7 @@ for s in sizes:
         raw[s][d], S[s][d] = {}, {}
         for n in num_samples:
             raw[s][d][n], S[s][d][n] = {}, {}
-            with open(f"out/Qwen2.5-VL-{s}B-Instruct/t0.7_n132_s5_z{n}_p1.0_d{d}_uFalse_r0/results.pkl", "rb") as f:
+            with open(f"out/Qwen2.5-VL-{s}B-Instruct/t0.7_n132_s5_z{n}_p1.0_d{d}_uFalse_r0_arithm/results.pkl", "rb") as f:
                 r = pickle.load(f)
             S[s][d][n] = {"LLM_scores": np.mean(r["LLM_scores"]).item(), "PP_scores": np.mean(r["PP_scores"]).item()}
             raw[s][d][n] = r

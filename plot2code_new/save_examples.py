@@ -16,8 +16,8 @@ M = np.array([[[[S[s][d][n][x] for x in S[s][d][n]] for n in S[s][d]] for d in S
 import difflib, sys, plot2code_new.eval_plot2code, shutil
 def save_plot(C_1: str, C_2: str, path: str):
     f = lambda x: f"\nplt.savefig('playground/{path + x}.png')\n"
-    C_1 += f("_llm")
-    C_2 += f("_pp")
+    C_1 = "import matplotlib.pyplot as plt\n\nplt.clf()\n" + C_1 + f("_llm")
+    C_2 = "import matplotlib.pyplot as plt\n\nplt.clf()\n" + C_2 + f("_pp")
     plot2code_new.eval_plot2code.subprocess_call(C_1, C_2, f"playground/{path}_llm.py", f"playground/{path}_pp.py")
     
 B = {s: {d: {n: [(X["best"], difflib.get_close_matches(X["best"], X["LLMs"], n=1, cutoff=0.0)[0]) for i, X in raw[s][d][n]["Better"].items()] for n in raw[s][d]} for d in raw[s]} for s in raw}
@@ -28,6 +28,7 @@ for s in sizes:
             I = list(raw[s][d][n]["Better"].keys())
             print(f"Model size {s} | Direct? {d} | #samples {n}\n---\n")
             for i, (x, y) in enumerate(B[s][d][n]):
+                print(f"{s}_{d}_{n}_{i}")
                 print(f"Best:\n{x}\n\n=======\n\nLLM:\n{y}\n\n=======\n\nDiff:\n")
                 X, Y = [u + '\n' for u in x.split('\n')], [u + '\n' for u in y.split('\n')]
                 sys.stdout.writelines(difflib.unified_diff(Y, X, fromfile="LLM sample", tofile="PP sample"))

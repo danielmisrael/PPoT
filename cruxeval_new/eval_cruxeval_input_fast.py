@@ -231,7 +231,7 @@ if __name__ == "__main__":
                 f.write(f"Code: \n{code}\n")
                 f.write(f"Expected output: {expected_output}\n\n")
                 f.write("LLM generations:\n")
-                assert len(S) == 1
+                # assert len(S) == 1
                 f.write(S[0] + "\n\n")
                 f.write("Probabilistic program generations:\n")
                 f.write(pp_sample + "\n\n")

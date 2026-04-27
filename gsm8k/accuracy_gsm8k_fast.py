@@ -1,8 +1,7 @@
 import argparse, json, os, math, numbers, pickle
 import transformers, datasets, torch, tqdm # type: ignore
 import ppot.utils, scripts.eval_entropy_programs, ppot.program, ppot.compile
-from gsm8k.eval_gsm8k import PROMPT, template, sample_llm, execute, pass_at_k, get_rule_supp
-from gsm8k.eval_gsm8k_fast import sample_llm_compact
+from gsm8k.eval_gsm8k_fast import PROMPT, sample_llm_compact, template, execute, pass_at_k, get_rule_supp
 import time
 
 def sample_pp(P: list, num_samples: int, pp_temperature: float = 1.0, ignore: bool = False, diff_constraint = False,

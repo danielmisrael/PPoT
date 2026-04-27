@@ -13,7 +13,7 @@ model_names=(
 for model_name in "${model_names[@]}"; do
     for k in {1..5}; do
         echo "Running: $model_name"
-        CUDA_VISIBLE_DEVICES=1 python3 -m gsm8k.accuracy_gsm8k \
+        CUDA_VISIBLE_DEVICES=1 python3 -m gsm8k.accuracy_gsm8k_fast \
             --dataset gsm8k/gsm8k.json \
             --model "$model_name" \
             --temperature 0.7 \
@@ -22,7 +22,7 @@ for model_name in "${model_names[@]}"; do
             --different-constraint \
             --num-llm-samples 20 \
             --parent-dir $1 \
-            --suffix fast_$k \
+            --suffix fast_$k
     done
 done
 

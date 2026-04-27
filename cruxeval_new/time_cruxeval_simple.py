@@ -3,8 +3,7 @@ import transformers, datasets, torch, tqdm # type: ignore
 import ppot.utils, ppot.program, ppot.compile
 from cruxeval_new.utils_execute import check_correctness
 from cruxeval_new.prompts import make_direct_input_prompt
-from cruxeval_new.eval_cruxeval_input import template, sample_llm, pass_at_k, sample_pp, cruxeval_input_answer_extractor
-from cruxeval_new.eval_cruxeval_input_fast import sample_compact
+from cruxeval_new.eval_cruxeval_input_fast import template, sample_compact, pass_at_k, sample_pp, cruxeval_input_answer_extractor
 
 SUPP_MODELS = [
     "Qwen/Qwen2.5-Coder-0.5B-Instruct",

@@ -94,11 +94,18 @@ def load(path: str) -> (torch.FloatTensor, torch.LongTensor, torch.FloatTensor):
     H = entropy(logits)
     return H, input_ids, logits
 
+def escape_inequality(x: str) -> str: return x.replace("<", "&lt;").replace(">", "&gt;")
+
 def html(H: torch.FloatTensor, I: torch.LongTensor, L: torch.FloatTensor,
          tokenizer: transformers.AutoTokenizer, toc_len: int = 0, instruction: str = None,
          ground_truth_img: PIL.Image = None, ground_truth_text: str = None,
-         return_vals: list = None, **kwargs) -> str:
-    T = [tokenizer.batch_decode(X) for X in I]
+         return_vals: list = None, append_html: str = '', str_mapping = escape_inequality,
+         **kwargs) -> list:
+    # T = [tokenizer.batch_decode(X) for X in I] # for some reason this doesn't work for all toks.
+    T = [[str_mapping(tokenizer.decode([x.item()])) for x in X] for X in I]
+    if str_mapping is not None:
+        for i in range(len(T)):
+            for j in range(len(T[i])): T[i][j] = str_mapping(T[i][j])
     body = ""
     H_norm = H/torch.max(H, dim=-1, keepdim=True).values
     L_norm = torch.log_softmax(L, dim=-1)
@@ -111,7 +118,10 @@ def html(H: torch.FloatTensor, I: torch.LongTensor, L: torch.FloatTensor,
         body += "\n<br><br>"
     if instruction is not None: body += f"\n<h2>Instruction</h2>\n<p>{instruction}</p>\n<br><br>"
     if ground_truth_img is not None:
-        body += f"\n<h2>Ground truth</h2>\n{embedd_image(ground_truth_img)}\n<br><br>"
+        if isinstance(ground_truth_img, str):
+            body += f"""\n<h2>Ground truth</h2>\n<img src="{ground_truth_img}"/>\n<br><br>"""
+        else:
+            body += f"\n<h2>Ground truth</h2>\n{embedd_image(ground_truth_img)}\n<br><br>"
     if ground_truth_text is not None:
         body += f"\n<h2>Ground truth</h2>\n{ground_truth_text}\n<br><br>"
     for i in range(H.shape[0]):
@@ -122,6 +132,7 @@ def html(H: torch.FloatTensor, I: torch.LongTensor, L: torch.FloatTensor,
             if "\n" in T[i][j]: body += "\n"
         body += "</pre>\n<br>"
         if return_vals is not None: body += f"Returned value: {return_vals[i]}"
+        body += append_html
         body += "<hr><br>\n"
     body += HTML_TAIL
     return body

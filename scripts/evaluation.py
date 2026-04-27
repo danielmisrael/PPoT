@@ -19,16 +19,28 @@ def subprocess_call(p, g, pfile, gfile):
     result = subprocess.run(['python', '-m', 'scripts.compute_tms', '--generated_code', pfile, '--ground_truth_code', gfile], capture_output=True, text=True, check=True)
     return float(result.stdout.strip("\n"))
 
-def extract_probabilistic_programs(temperature:float, direct:bool, num_eg:int, out_loc:str) -> tuple:
+def load_probabilistic_programs(model: str, temperature: float, direct: bool, num_eg: int, out_loc: str) -> tuple:
+    tag = "direct" if direct else "instruct"
+    model_path = model.split('/')[-1]
+    load_path = f"{out_loc}/{model_path}_t{temperature:.1f}_{tag}/prob_programs"
+    PP = []
+    for i in range(num_eg):
+        with open(f"{load_path}/{i}.pkl", "rb") as f: pp = pickle.load(f)
+        pp.reset_gumbel()
+        PP.append([pp])
+    return PP, None
+
+def extract_probabilistic_programs(model: str, temperature:float, direct:bool, num_eg:int, out_loc:str) -> tuple:
     # Loading the processor
-    processor = transformers.AutoProcessor.from_pretrained("Qwen/Qwen2.5-VL-3B-Instruct")
+    processor = transformers.AutoProcessor.from_pretrained(model)
 
     # Load the programs generated from the model: in vedett [0]
     # t__ is the temperature - 8 samples
     # t0 only one sample, because always greedy
     # there are multiple .pkl files
     tag = "direct" if direct else "instruct"
-    cached_path = f"cache/pp_t{temperature:.1f}_{tag}.pkl"
+    model_path = model.split('/')[-1]
+    cached_path = f"cache/{model_path}_pp_t{temperature:.1f}_{tag}.pkl"
     if os.path.isfile(cached_path):
         PP, LL = ppot.utils.retrieve_programs(cached_path, None)
         if len(PP) >= num_eg:
@@ -36,7 +48,7 @@ def extract_probabilistic_programs(temperature:float, direct:bool, num_eg:int, o
 
     PP, LL = [], []
     for i in tqdm.tqdm(range(num_eg), desc="Compiling programs"):
-        with open(f"{out_loc}/Qwen2.5-VL-3B-Instruct_t{temperature:.1f}_{tag}/data/{i}.pkl", "rb") as f:
+        with open(f"{out_loc}/{model.split('/')[-1]}_t{temperature:.1f}_{tag}/data/{i}.pkl", "rb") as f:
             R = pickle.load(f)
         # Load the token ids and logits
         input_ids, logits, code = R["ids"], R["logits"], R["code"]
@@ -149,13 +161,18 @@ if __name__ == "__main__":
     parser.add_argument("--raw", action="store_true", default=False)
     parser.add_argument("--dump", action="store_true", default=False)
     parser.add_argument("--out_loc", type=str, required=True)
-    parser.add_argument("--direct", type=bool, default=False, required=True)
+    parser.add_argument("--direct", action="store_true", default=False)
     parser.add_argument("--save_dir", type=str, default="/space/poorvagarg/genPPS/out/", help="Path to save results")
+    parser.add_argument("--model", type=str, default="Qwen/Qwen2.5-VL-3B-Instruct")
+    parser.add_argument("--load-pp-from-disk", action="store_true", default=False)
 
     args = parser.parse_args()
     print(args)
 
-    PP, LL = extract_probabilistic_programs(args.temperature, args.direct, args.num_examples, args.out_loc)
+    if args.load_pp_from_disk:
+        PP, LL = extract_probabilistic_programs(args.model, args.temperature, args.direct, args.num_examples, args.out_loc)
+    else:
+        PP, LL = load_probabilistic_programs(args.model, args.temperature, args.direct, args.num_examples, args.out_loc)
     stats, triples = sample_from_probabilistic_programs(PP, LL, args.num_samples,
                                                                 args.greedy, args.raw,
                                                                 args.pp_temperature, args.dump)
@@ -165,15 +182,16 @@ if __name__ == "__main__":
     table.field_names = list(stats.keys())
     table.add_row(list(stats.values()))
     print(table)
+    model_path = args.model.split("/")[-1]
 
     tag = "direct" if args.direct else "instruct"
-    os.makedirs(f"{args.save_dir}/t{args.pp_temperature:.1f}_{tag}", exist_ok=True)
+    os.makedirs(f"{args.save_dir}/{model_path}_t{args.pp_temperature:.1f}_{tag}", exist_ok=True)
 
-    with open(f"{args.save_dir}/t{args.pp_temperature:.1f}_{tag}/stats_t{args.temperature:.1f}_n{args.num_examples}_s{args.num_samples}"
+    with open(f"{args.save_dir}/{model_path}_t{args.pp_temperature:.1f}_{tag}/stats_t{args.temperature:.1f}_n{args.num_examples}_s{args.num_samples}"
               + args.isUSPP*"_isUSPP" + args.greedy*"_greedy" + ".pkl", "wb") as f:
         pickle.dump((stats), f)
 
     if args.dump:
-        with open(f"{args.save_dir}/t{args.pp_temperature:.1f}_{tag}/stats_t{args.temperature:.1f}_n{args.num_examples}_s{args.num_samples}_{tag}"
+        with open(f"{args.save_dir}/{model_path}_t{args.pp_temperature:.1f}_{tag}/stats_t{args.temperature:.1f}_n{args.num_examples}_s{args.num_samples}_{tag}"
                 + args.isUSPP*"_isUSPP" + args.greedy*"_greedy" + "_examples" + ".pkl", "wb") as f:
             pickle.dump(triples, f)

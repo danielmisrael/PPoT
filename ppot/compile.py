@@ -4,6 +4,8 @@ from collections import namedtuple
 import ppot.program, ppot.utils
 from typing import Optional
 
+NEWER_TRANSFORMERS = transformers.__version__ > "4.53.0"
+
 CompactLogits = namedtuple('CompactLogits', ['token_log_prob', 'supp_logits', 'supp_ids'])
 """
 Compact logit representation storing only what programs() needs.
@@ -12,6 +14,8 @@ Compact logit representation storing only what programs() needs.
   supp_ids       : (|supp|,)               — the support token IDs (union of all rules)
 Reduces CPU transfer from ~1.8GB to ~1MB per example.
 """
+
+NEWER_TRANSFORMERS = transformers.__version__ > "4.53.0"
 
 def get_token_pos(token_ids: torch.LongTensor, processor: transformers.AutoProcessor,
                   rule: str = r"(?<!(?:[a-df-zA-DF-Z_][0-9]*)|(?:[eE][eE]+[0-9]*)|(?:#.*))([0-9])") -> list:
@@ -36,7 +40,7 @@ def get_token_pos(token_ids: torch.LongTensor, processor: transformers.AutoProce
     """
     tok = processor if ppot.utils.is_tokenizer(processor) else processor.tokenizer
     # Tokens as strings (here we don't ignore special tokens, which might matter in the future).
-    S = [tok.batch_decode(x) for x in token_ids] # type: ignore
+    S = [tok.batch_decode(x.reshape(-1, 1) if NEWER_TRANSFORMERS else x) for x in token_ids] # type: ignore
     # Length of tokens.
     L = np.array([list(map(len, x)) for x in S])
     # Cumulative sums of lengths, which give the (end) position of the token.
@@ -104,7 +108,6 @@ def programs(token_ids: torch.LongTensor, logits: torch.FloatTensor,
         pos, supp = joint_positions, joint_supp
 
     PP = []
-    
 
     # Compute loglikelihoods.
     M = torch.isin(token_ids, torch.tensor(tok.all_special_ids)) # special tokens # type: ignore
@@ -119,7 +122,7 @@ def programs(token_ids: torch.LongTensor, logits: torch.FloatTensor,
 
     for i, (T, P) in enumerate(zip(token_ids, pos)):
         # Prepare code as a formatted string.
-        tokens = tok.batch_decode(T, skip_special_tokens=True)
+        tokens = tok.batch_decode(T.reshape(-1, 1) if NEWER_TRANSFORMERS else T, skip_special_tokens=True)
         real_tokens = []
         for j, t in enumerate(tokens):
             tokens[j] = t.replace("{", "{{").replace("}", "}}")
@@ -143,7 +146,7 @@ def programs(token_ids: torch.LongTensor, logits: torch.FloatTensor,
         else: PP.append(ppot.program.Program(C, X, L_supp, supp[i], tok, code[i], real_tokens, P))
 
         PP[-1].probs(P, T.shape)
-        
+
     return PP, nLL
 
 

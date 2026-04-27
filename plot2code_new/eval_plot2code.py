@@ -1,20 +1,14 @@
 #!/usr/bin/env python3
-import os, json, sys, base64, re, shutil, argparse, pickle, gc, pathlib
-from transformers import Qwen2_5_VLForConditionalGeneration, AutoTokenizer, AutoProcessor
+import os, json, base64, re, argparse, pickle, gc, multiprocessing, subprocess, uuid
+import torch, transformers, numpy as np, dill, tqdm
+from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor
 from qwen_vl_utils import process_vision_info
-import torch, matplotlib.pyplot as plt, shutil, argparse, matplotlib, transformers, numpy as np
-import ppot.compile, ppot.utils as utils
-from typing import Optional
-import random
-import pickle
-import dill, multiprocessing
+import ppot.compile, ppot.utils, gsm8k.eval_gsm8k_fast
+
 dill.Pickler.dumps, dill.Pickler.loads = dill.dumps, dill.loads
 multiprocessing.reduction.ForkingPickler = dill.Pickler
 multiprocessing.reduction.dump = dill.dump
 # multiprocessing.queues._ForkingPickler = dill.Pickler
-import transformers, datasets, numpy as np, tqdm, prettytable
-from scripts.text_match_score import evaluate_single_example
-import subprocess, uuid
 
 def subprocess_call(p, g, pfile, gfile):
     with open(pfile, "w") as f:
@@ -30,17 +24,20 @@ def encode_image_to_base64(image_path: str) -> str:
     with open(image_path, "rb") as image_file:
         return base64.b64encode(image_file.read()).decode('utf-8')
 
-def load_model_and_processor(model_name: str = "Qwen/Qwen2.5-VL-3B-Instruct"):
+def load_model_and_processor(model_name: str = "Qwen/Qwen2.5-VL-3B-Instruct", device: str = "cuda",
+                             no_model_loading: bool = False):
     """Load the model and processor"""
-    print(f"Loading model: {model_name}")
+    print(f"Loading model: {model_name} on device {device}")
 
     # Load model with explicit CUDA settings
-    model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-        model_name,
-        torch_dtype=torch.float16,
-        device_map="cuda",
-        trust_remote_code=True
-    )
+    if no_model_loading: model = None
+    else:
+        model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+            model_name,
+            torch_dtype=torch.float16,
+            device_map=device,
+            trust_remote_code=True
+        )
 
     # Load processor
     processor = AutoProcessor.from_pretrained(model_name)
@@ -61,10 +58,12 @@ def read_jsonl_file(file_path: str) -> str:
     with open(file_path, 'r') as json_file:
         return [json.loads(line) for line in json_file]
 
-def get_save_path(out_path: str, model_name: str, append: str = None) -> str:
+def get_save_path(out_path: str, model_name: str, args, append: str = None) -> str:
     """Get save path for generated code"""
     model_name = model_name.split("/")[-1]
-    save_path = os.path.join(out_path, model_name if append is None else f"{model_name}_{append}")
+    info_str = f"t{args.temperature}_n{args.num_examples}_s{args.num_samples}_z{args.num_llm_samples}_p{args.program_temperature}_d{args.direct}_u{args.uspp}_r{args.seed}"
+    if args.include_arithmetic_operators: info_str += "_arithm"
+    save_path = os.path.join(out_path, model_name if append is None else f"{model_name}_{append}", info_str)
     os.makedirs(save_path, exist_ok=True)
     os.makedirs(os.path.join(save_path, "imgs"), exist_ok=True)
     os.makedirs(os.path.join(save_path, "data"), exist_ok=True)
@@ -72,7 +71,10 @@ def get_save_path(out_path: str, model_name: str, append: str = None) -> str:
     return save_path
 
 def generate_code_for_image(model: transformers.AutoModelForCausalLM, processor: AutoProcessor,
-                            image_path: str, instruction: Optional[str] = None, **kwargs) -> tuple:
+                            image_path: str, instruction: str | None,
+                            num_return_sequences: int = 1, temperature: float = 1.0,
+                            return_logits: bool = False, supp_ids: torch.LongTensor = None,
+                            force_sampling: bool = False, **kwargs) -> tuple:
     """Generate code for a single image"""
 
     if instruction is None:
@@ -110,17 +112,25 @@ def generate_code_for_image(model: transformers.AutoModelForCausalLM, processor:
     inputs = inputs.to("cuda")
 
     # Inference: Generation of the output
+    gen_kwargs = {"do_sample": False} if not force_sampling and (temperature == 0 or num_return_sequences == 1) else \
+        {"top_p": 1.0, "top_k": 0, "do_sample": True}
+    logits_kwargs = {}
+    if supp_ids is not None and return_logits:
+        cap = gsm8k.eval_gsm8k_fast._CompactLogitsCapture(supp_ids.to(model.device))
+        logits_kwargs = {"logits_processor": transformers.LogitsProcessorList([cap])}
     with torch.no_grad():
         out = model.generate(
             **inputs,
-            top_p=1.0,
-            top_k=0,
+            **gen_kwargs,
             max_new_tokens=2048,
             return_dict_in_generate=True,
-            output_logits=True,
+            output_logits=return_logits,
             # output_scores=True, # output_scores correspond to the true logits the model is sampling from
             repetition_penalty=1.0, # in this case scores and logits are the same
-            **kwargs # contains do_sample=False, temperature
+            **logits_kwargs,
+            temperature=temperature,
+            num_return_sequences=num_return_sequences,
+            **kwargs,
         )
         generated_ids_trimmed = out.sequences[:,inputs.input_ids.numel():].cpu()
         output_text = processor.batch_decode(
@@ -129,18 +139,22 @@ def generate_code_for_image(model: transformers.AutoModelForCausalLM, processor:
 
     # Extract code
     code = extract_code(output_text)
-    logits = torch.concatenate(tuple(x.cpu() for x in out.logits), dim=-1).reshape(out.logits[0].shape[0], len(out.logits), -1)
-    # scores = torch.concatenate(tuple(x.cpu() for x in out.scores), dim=-1).reshape(out.scores[0].shape[0], len(out.scores), -1)
-
-    return code, generated_ids_trimmed, logits
+    if return_logits:
+        if supp_ids is not None:
+            supp_logits, token_log_prob = cap.finalize(out.sequences[:,-1])
+            logits = ppot.compile.CompactLogits(token_log_prob=token_log_prob,
+                                                supp_logits=supp_logits, supp_ids=supp_ids)
+        else:
+            logits = torch.concatenate(tuple(x.cpu() for x in out.logits), dim=-1).reshape(out.logits[0].shape[0], len(out.logits), -1)
+        # scores = torch.concatenate(tuple(x.cpu() for x in out.scores), dim=-1).reshape(out.scores[0].shape[0], len(out.scores), -1)
+        return code, generated_ids_trimmed, logits
+    else: return code, None, None
 
 def generate_code(idx: int, item: dict, model: transformers.AutoModel,
                          processor: transformers.AutoProcessor, ground_truth_path: str,
                          output_path: str, direct: bool = False, **kwargs):
     chkpnt_path = os.path.join(output_path, "ckpt", f"{idx}")
-    # if os.path.isfile(chkpnt_path): return
-    # print(ground_truth_path)
-
+    if os.path.isfile(chkpnt_path): return
     code, ids, logits = generate_code_for_image(model, processor, ground_truth_path,
                                                 item["instruction"] if not direct else None, **kwargs)
     return code, ids, logits
@@ -161,11 +175,10 @@ def evaluate_programs(to_run: list, gt_code: str) -> list:
     """
     Evaluates multiple programs in parallel
     """
-    if not os.path.exists("raw"):
-        os.makedirs("raw")
-  
+    os.makedirs("raw", exist_ok=True)
+    os.makedirs("figures", exist_ok=True)
     with multiprocessing.Pool() as pool:
-        procs = []        
+        procs = []
         for i in range(len(to_run)):
             pfile = f"raw/p_{uuid.uuid4().hex}.py"
             gfile = f"raw/g_{uuid.uuid4().hex}.py"
@@ -173,14 +186,14 @@ def evaluate_programs(to_run: list, gt_code: str) -> list:
 
         text_match_scores = []
         for P in procs:
-            try: r = P[0].get(60) # 30 seconds timeout
+            try: r = P[0].get(60)
             except Exception as exc:
                 r = 0
                 print(">>>>>>>>>", exc)
             os.remove(P[1])
             os.remove(P[2])
             text_match_scores.append(r)
-    
+
     return text_match_scores
 
 def example_programs(raw_programs: list, raw_scores: list, sample_programs: list, sample_scores: list,
@@ -195,21 +208,22 @@ def example_programs(raw_programs: list, raw_scores: list, sample_programs: list
 
     return triples
 
-def sample_from_probabilistic_programs(PP: list, LL: list, gt_code: str, num_samples: int,
-                                       pp_temp: float) -> list:
+def sample_from_probabilistic_programs(PP: list, gt_code: str, num_samples: int, pp_temp: float,
+                                       return_scores: bool = False) -> list:
     """
     Sample from probabilistic programs and evaluate them with respect to the actual image.
     It returns statistics of the results
     """
     to_run_sample = []
     for i in range(len(PP)):
-        to_run_sample.extend(_sample_task(PP[i], False, num_samples, pp_temp))
         to_run_sample.extend(_get_raw(PP[i]))
+        to_run_sample.extend(_sample_task(PP[i], False, num_samples, pp_temp))
     text_match_scores = evaluate_programs(to_run_sample, gt_code)
-    print(text_match_scores)
-    return np.max(text_match_scores)
+    retval = (np.max(text_match_scores), to_run_sample[np.argmax(text_match_scores)])
+    if return_scores: return *retval, np.array(text_match_scores)
+    return retval
 
-SUPP_MODELS = ["Qwen/Qwen2.5-VL-3B-Instruct", 
+SUPP_MODELS = ["Qwen/Qwen2.5-VL-3B-Instruct",
                "Qwen/Qwen2.5-VL-1B-Instruct",
                "Qwen/Qwen2.5-VL-7B-Instruct"]
 
@@ -228,6 +242,10 @@ def main():
     parser.add_argument("--uspp", default=False, action="store_true")
     parser.add_argument("--sampling-device", type=str, default="cuda:0")
     parser.add_argument("--direct", action="store_true", help="Don't use instruction")
+    parser.add_argument("--pause-for-inspection", action="store_true", default=False,
+                        help="Whether to pause for instruction and inspect an example.")
+    parser.add_argument("--no-model-loading", action="store_true", default=False)
+    parser.add_argument("--include-arithmetic-operators", action="store_true", default=False)
     args = parser.parse_args()
 
     ppot.utils.seed(args.seed)
@@ -237,53 +255,91 @@ def main():
     num_examples = args.num_examples
 
     # Load model and processor
-    model, processor = load_model_and_processor(model_name)
+    model, processor = load_model_and_processor(model_name, device=args.sampling_device,
+                                                no_model_loading=args.no_model_loading)
 
-    dataset = utils.prepare_data("TencentARC/Plot2Code", num_examples,
-                                 lambda x: "matplotlib" in x["url"], split="test")
+    dataset = ppot.utils.prepare_data("TencentARC/Plot2Code", num_examples,
+                                      lambda x: "matplotlib" in x["url"], split="test")
 
     # Get save path
     tag = "direct" if args.direct else "instruct"
-    save_path = get_save_path(args.save_dir, model_name, append=f"t{args.temperature}_{tag}")
+    save_path = get_save_path(args.save_dir, model_name, args)
     print(f"Results will be saved to {save_path}")
 
-    LLM_scores = []
-    PP_scores = []
+    if args.include_arithmetic_operators:
+        import gsm8k.eval_gsm8k
+        rules, supp = gsm8k.eval_gsm8k.get_rule_supp("all", processor.tokenizer)
+        compile_kwargs = {"rules": rules, "supp": supp}
+    else: compile_kwargs = {}
+
+    all_PP = []
+    all_S = []
 
     # Generate code for each sample
     for idx, item in enumerate(tqdm.tqdm(dataset, desc="Generating code")):
-        # save image to data path
-        image_path = os.path.join("data", "images", f"{idx}.png")
-        item["image"].save(image_path)
-        
-        # Generate programs from the language model
-        S, I, L = generate_code(idx, item, model, processor, image_path, save_path,
-                    direct=args.direct,
-                    temperature=1.0 if args.temperature == 0 else args.temperature,
-                    num_return_sequences=1 if args.temperature == 0 else args.num_llm_samples,
-                    do_sample=args.temperature > 0)
-        
-        # Evaluate the llm generated programs
-        llm_scores = evaluate_programs(S, item["code"])
-        llm_scores = np.array(llm_scores).flatten()
-        LLM_scores.append(max(llm_scores))
+        if os.path.isfile(ckpt_path := f"{save_path}/ckpt/gen_{idx}.pkl"):
+            with open(ckpt_path, "rb") as f: PP, S = pickle.load(f)
+            for P in PP: P.reset_gumbel()
+        else:
+            # save image to data path
+            image_path = os.path.join("data", "images", f"{idx}.png")
+            item["image"].save(image_path)
 
-        # Compile probabilistic programs
-        PP, LL = ppot.compile.programs(I, L, processor, code=S)
-        max_score = sample_from_probabilistic_programs(PP, LL, item["code"], args.num_samples,
-                                                                args.program_temperature)
+            # Generate programs from the language model
+            S, I, L = generate_code(idx, item, model, processor, image_path, save_path,
+                        direct=args.direct,
+                        temperature=1.0 if args.temperature == 0 else args.temperature,
+                        num_return_sequences=1 if args.temperature == 0 else args.num_llm_samples)
+
+            # Compile probabilistic programs
+            PP, LL = ppot.compile.programs(I, L, processor, code=S, **compile_kwargs)
+            with open(ckpt_path, "wb") as f: pickle.dump((PP, S), f)
+        all_PP.append(PP)
+        all_S.append(S)
+
+    # Free model.
+    if not args.no_model_loading:
+        del model; ppot.utils.free()
+
+    LLM_scores = []
+    PP_scores = []
+    better_programs = {}
+
+    for idx, item in enumerate(tqdm.tqdm(dataset, desc="Evaluating")):
+        if os.path.isfile(ckpt_path := f"{save_path}/ckpt/eval_{idx}.pkl"):
+            with open(ckpt_path, "rb") as f: max_llm_score, max_score, better = pickle.load(f)
+        else:
+            # Evaluate the llm generated programs
+            llm_scores = evaluate_programs(all_S[idx], item["code"])
+            llm_scores = np.array(llm_scores).flatten()
+            max_llm_score = np.max(llm_scores)
+
+            max_score, argmax_program = sample_from_probabilistic_programs(all_PP[idx],
+                                                                           item["code"],
+                                                                           args.num_samples,
+                                                                           args.program_temperature)
+            better = None
+            if (max_score > max_llm_score):
+                print(f"Example {idx} - Probabilistic program outperforms LLM generated code: {max_score} vs {max_llm_score}")
+                better = {"best": argmax_program, "LLMs": all_S[idx]}
+                if args.pause_for_inspection: breakpoint()
+
+            with open(ckpt_path, "wb") as f: pickle.dump((max_llm_score, max_score, better), f)
+        LLM_scores.append(max_llm_score)
         PP_scores.append(max_score)
-        if max_score > max(llm_scores):
-            print(f"Example {idx} - Probabilistic program outperforms LLM generated code: {max_score} vs {max(llm_scores)}")    
-            breakpoint()
-        # overall_stats.append(stats)
+        if better is not None: better_programs[idx] = better
+
     print(args)
     print(np.mean(LLM_scores))
     print(np.mean(PP_scores))
-    breakpoint()
 
-        
-
+    with open(f"{save_path}/results.pkl", "wb") as f: pickle.dump({
+            "LLM": all_S,
+            "PP": all_PP,
+            "LLM_scores": LLM_scores,
+            "PP_scores": PP_scores,
+            "Better": better_programs,
+    }, f)
 
 if __name__ == "__main__":
     main()

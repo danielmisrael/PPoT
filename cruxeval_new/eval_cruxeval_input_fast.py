@@ -138,8 +138,8 @@ def pass_at_k(S: list, code: str, expected_output: str,
     for s in S:
         processed = postprocess_generation(s)
         if evaluate_single(processed, code, expected_output, timeout):
-            return True
-    return False
+            return True, s
+    return False, ""
 
 def sample_pp(programs: list, num_samples: int, pp_temperature: float = 1.0,
                  constraint: bool = False) -> list:
@@ -213,7 +213,7 @@ if __name__ == "__main__":
             max_new_tokens=args.max_new_tokens)
 
         # Step 2: Evaluate LLM pass@k (baseline)
-        pass_llm = pass_at_k(S, code, expected_output, args.timeout)
+        pass_llm, llm_sample = pass_at_k(S, code, expected_output, args.timeout)
         pass_llm_list.append(pass_llm)
 
         # Step 3: Compile SubsetPrograms
@@ -223,8 +223,18 @@ if __name__ == "__main__":
 
         # # Step 4: Evaluate ppot pass@k
         PP_samples = sample_pp(P, args.num_samples, args.program_temperature, args.different_constraint)
-        pass_pp = pass_at_k(PP_samples, code, expected_output, args.timeout)
+        pass_pp, pp_sample = pass_at_k(PP_samples, code, expected_output, args.timeout)
         pass_pp_list.append(pass_pp)
+
+        if pass_pp and not pass_llm:
+            with open(f"/space/poorvagarg/genPPS/cruxeval_new/examples/{args.model}_{args.temperature}_{i}.txt", "w") as f:
+                f.write(f"Code: \n{code}\n")
+                f.write(f"Expected output: {expected_output}\n\n")
+                f.write("LLM generations:\n")
+                assert len(S) == 1
+                f.write(S[0] + "\n\n")
+                f.write("Probabilistic program generations:\n")
+                f.write(pp_sample + "\n\n")
 
         # Update progress bar
         llm_rate = torch.mean(torch.tensor(pass_llm_list, dtype=torch.float))

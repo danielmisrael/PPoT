@@ -195,7 +195,15 @@ if __name__ == "__main__":
         pass_pp.append(pass_pp_current)
 
         if pass_pp_current and not pass_llm_current:
-            breakpoint()
+            with open(f"/space/poorvagarg/genPPS/gsm8k/examples/{args.model}_{args.temperature}_{i}.txt", "w") as f:
+                f.write(f"Question: {X['question']}\n")
+                f.write(f"Ground truth answer: {X['answer']}\n\n")
+                f.write("LLM generations:\n")
+                for s in S:
+                    f.write(s + "\n\n")
+                f.write("Probabilistic program generations:\n")
+                for p in PPS:
+                    f.write(p + "\n\n")
 
         if args.save_html:
             html = scripts.eval_entropy_programs.html(P[0].entropy_ph.unsqueeze(0), I, L, tokenizer, toc_len=len(D),

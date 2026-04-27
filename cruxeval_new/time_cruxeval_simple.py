@@ -41,7 +41,7 @@ if __name__ == "__main__":
     parser.add_argument("--save-html", default=False, action="store_true")
     parser.add_argument("--llm-cache", default=False, action="store_true")
     parser.add_argument("--debug", default=False, action="store_true")
-    parser.add_argument("--parent-dir", type=str, default="/space/poorvagarg/genPPS/cruxeval_new/")
+    parser.add_argument("--parent-dir", type=str, default="./cruxeval_new/")
     parser.add_argument("--suffix", type=str, default="")
     parser.add_argument("--shuffle", default=False, action="store_true")
     parser.add_argument("--iterations", type=int, default=5)

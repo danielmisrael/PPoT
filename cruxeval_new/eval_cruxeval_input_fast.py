@@ -192,9 +192,9 @@ if __name__ == "__main__":
     pbar = tqdm.tqdm(enumerate(dataset), total=min(args.num_examples, len(dataset)),
                      desc="CruxEval Input", dynamic_ncols=True)
 
-    entropy_save_path = f"/space/poorvagarg/genPPS/cruxeval_new/entropy/{args.model}/{args.temperature}/"
-    report_save_path = f"/space/poorvagarg/genPPS/cruxeval_new/report/{args.model}/{args.temperature}/"
-    llm_cache_path = f"/space/poorvagarg/genPPS/cruxeval_new/generations/{args.model}/{args.temperature}/"
+    entropy_save_path = f"./cruxeval_new/entropy/{args.model}/{args.temperature}/"
+    report_save_path = f"./cruxeval_new/report/{args.model}/{args.temperature}/"
+    llm_cache_path = f"./cruxeval_new/generations/{args.model}/{args.temperature}/"
     os.makedirs(entropy_save_path, exist_ok=True)
     os.makedirs(report_save_path, exist_ok=True)
     os.makedirs(llm_cache_path, exist_ok=True)
@@ -227,7 +227,7 @@ if __name__ == "__main__":
         pass_pp_list.append(pass_pp)
 
         if pass_pp and not pass_llm:
-            with open(f"/space/poorvagarg/genPPS/cruxeval_new/examples/{args.model}_{args.temperature}_{i}.txt", "w") as f:
+            with open(f"./cruxeval_new/examples/{args.model}_{args.temperature}_{i}.txt", "w") as f:
                 f.write(f"Code: \n{code}\n")
                 f.write(f"Expected output: {expected_output}\n\n")
                 f.write("LLM generations:\n")

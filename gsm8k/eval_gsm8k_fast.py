@@ -187,9 +187,9 @@ if __name__ == "__main__":
     parser.add_argument("--save-html", default=False, action="store_true")
     parser.add_argument("--llm-cache", default=False, action="store_true")
     parser.add_argument("--debug", default=False, action="store_true")
-    parser.add_argument("--entropy-save-path", type=str, default="/space/poorvagarg/genPPS/gsm8k/entropy/{model}/{temperature}/")
-    parser.add_argument("--report-save-path", type=str, default="/space/poorvagarg/genPPS/gsm8k/report/{model}/{temperature}/")
-    parser.add_argument("--llm-cache-path", type=str, default="/space/poorvagarg/genPPS/gsm8k/generations/{model}/{temperature}/")
+    parser.add_argument("--entropy-save-path", type=str, default="./gsm8k/entropy/{model}/{temperature}/")
+    parser.add_argument("--report-save-path", type=str, default="./gsm8k/report/{model}/{temperature}/")
+    parser.add_argument("--llm-cache-path", type=str, default="./gsm8k/generations/{model}/{temperature}/")
     args = parser.parse_args()
 
     ppot.utils.seed(args.seed)

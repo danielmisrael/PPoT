@@ -3,7 +3,6 @@
 [![arXiv](https://img.shields.io/badge/arXiv-2604.17290-blue?link=https%3A%2F%2F2604.17290)](https://arxiv.org/abs/2604.17290)
 
 
-
 ## Setup
 
 ### 1. Clone the repository and submodules

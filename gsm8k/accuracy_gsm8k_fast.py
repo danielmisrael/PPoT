@@ -54,7 +54,7 @@ if __name__ == "__main__":
     parser.add_argument("--save-html", default=False, action="store_true")
     parser.add_argument("--llm-cache", default=False, action="store_true")
     parser.add_argument("--debug", default=False, action="store_true")
-    parser.add_argument("--parent-dir", type=str, default="/space/poorvagarg/genPPS/gsm8k/")
+    parser.add_argument("--parent-dir", type=str, default="./gsm8k/")
     parser.add_argument("--suffix", type=str, default="")
     args = parser.parse_args()
 

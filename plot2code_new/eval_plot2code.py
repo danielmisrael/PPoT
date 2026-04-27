@@ -260,6 +260,7 @@ def main():
 
     dataset = ppot.utils.prepare_data("TencentARC/Plot2Code", num_examples,
                                       lambda x: "matplotlib" in x["url"], split="test")
+    print(len(dataset))
 
     # Get save path
     tag = "direct" if args.direct else "instruct"
@@ -267,8 +268,8 @@ def main():
     print(f"Results will be saved to {save_path}")
 
     if args.include_arithmetic_operators:
-        import gsm8k.eval_gsm8k
-        rules, supp = gsm8k.eval_gsm8k.get_rule_supp("all", processor.tokenizer)
+        import gsm8k.eval_gsm8k_fast
+        rules, supp = gsm8k.eval_gsm8k_fast.get_rule_supp("all", processor.tokenizer)
         compile_kwargs = {"rules": rules, "supp": supp}
     else: compile_kwargs = {}
 

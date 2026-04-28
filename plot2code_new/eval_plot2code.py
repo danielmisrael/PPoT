@@ -16,7 +16,7 @@ def subprocess_call(p, g, pfile, gfile):
     with open(gfile, "w") as f:
         f.write(g)
 
-    result = subprocess.run(['python', '-m', 'scripts.compute_tms', '--generated_code', pfile, '--ground_truth_code', gfile], capture_output=True, text=True, check=True)
+    result = subprocess.run(['python', '-m', 'plot2code_new.compute_tms', '--generated_code', pfile, '--ground_truth_code', gfile], capture_output=True, text=True, check=True)
     return float(result.stdout.strip("\n"))
 
 def encode_image_to_base64(image_path: str) -> str:

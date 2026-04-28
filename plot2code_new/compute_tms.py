@@ -1,5 +1,5 @@
 import argparse, resource
-from scripts.text_match_score import evaluate_single_example
+from plot2code_new.text_match_score import evaluate_single_example
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

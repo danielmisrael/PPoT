@@ -1,6 +1,6 @@
 import argparse, json, os, math, numbers, pickle
 import transformers, datasets, torch, tqdm # type: ignore
-import ppot.utils, scripts.eval_entropy_programs, ppot.program, ppot.compile
+import ppot.utils, ppot.eval_entropy_programs, ppot.program, ppot.compile
 from ppot.compile import CompactLogits
 from transformers import LogitsProcessorList, LogitsProcessor
 import time
@@ -239,7 +239,7 @@ if __name__ == "__main__":
                 with open(saved_path, "wb") as f: pickle.dump((I, L, S), f) # type: ignore
 
         if args.save_html:
-            H = scripts.eval_entropy_programs.entropy(L)
+            H = ppot.eval_entropy_programs.entropy(L)
 
         pass_llm_current = pass_at_k(S, timeout=args.timeout, gt=gt)
         pass_llm.append(pass_llm_current)
@@ -254,7 +254,7 @@ if __name__ == "__main__":
         #     breakpoint()
 
         if args.save_html:
-            html = scripts.eval_entropy_programs.html(P[0].entropy_ph.unsqueeze(0), I, L, tokenizer, toc_len=len(D),
+            html = ppot.eval_entropy_programs.html(P[0].entropy_ph.unsqueeze(0), I, L, tokenizer, toc_len=len(D),
                                                   instruction=PROMPT(**X),
                                                   ground_truth_text=f"Expected answer: {X['answer']}")
             with open(f"{entropy_save_path}/{i}.html", "w") as f: f.write(html)

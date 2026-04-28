@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Usage: bash gsm8k/time_gsm8k_error.sh <report_save_path>
+# Usage: bash gsm8k/time_gsm8k_simple.sh
 
 # Run names to evaluate (matching your generated predictions)
 model_names=(

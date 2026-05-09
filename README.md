@@ -10,8 +10,8 @@ This repository consists of all necessary instructions and code to reproduce the
 
 ### Clone the repository and install dependencies
 ```bash
-git clone https://github.com/PoorvaGarg/genPPS.git
-cd genPPS
+git clone https://github.com/PoorvaGarg/PPoT.git
+cd PPoT
 ```
 
 ```bash
@@ -46,7 +46,7 @@ python3 -m gsm8k.eval_gsm8k_fast --dataset gsm8k/gsm8k.json --model Qwen/Qwen2.5
 
 For the results in Table 1, use the following commands with models of different sizes:
 ```bash 
-python3 -m gsm8k.eval_gsm8k_fast --dataset gsm8k/gsm8k.json --model Qwen/Qwen2.5-Coder-3B-Instruct --temperature 0.0 --num-samples 5 --rule all --different-constraint --num-llm-samples 1 checked
+python3 -m gsm8k.eval_gsm8k_fast --dataset gsm8k/gsm8k.json --model Qwen/Qwen2.5-Coder-3B-Instruct --temperature 0.0 --num-samples 5 --rule all --different-constraint --num-llm-samples 1
 python3 -m gsm8k.eval_gsm8k_fast --dataset gsm8k/gsm8k.json --model Qwen/Qwen2.5-Coder-3B-Instruct --temperature 0.7 --num-samples 5 --rule all --different-constraint --num-llm-samples 5
 ```
 
@@ -80,13 +80,13 @@ Checking
 
 For the results in Table 1, use the following commands with models of different sizes:
 ```bash 
-python -m plot2code_new.eval_plot2code --num-examples=132 --temperature=0.7 --num-llm-samples=1 --num-samples=5 --save-dir=out --program-temperature=1.0 --model-name="Qwen/Qwen2.5-VL-3B-Instruct" --include-arithmetic-operators
-python -m plot2code_new.eval_plot2code --num-examples=132 --temperature=0.7 --num-llm-samples=5 --num-samples=5 --save-dir=out --program-temperature=1.0 --model-name="Qwen/Qwen2.5-VL-3B-Instruct" --include-arithmetic-operators
+python -m plot2code_new.eval_plot2code --num-examples=132 --temperature=0.0 --num-llm-samples=1 --num-samples=5 --save-dir=out --program-temperature=1.0 --model-name="Qwen/Qwen2.5-VL-3B-Instruct" --include-arithmetic-operators --direct
+python -m plot2code_new.eval_plot2code --num-examples=132 --temperature=0.7 --num-llm-samples=5 --num-samples=5 --save-dir=out --program-temperature=1.0 --model-name="Qwen/Qwen2.5-VL-3B-Instruct" --include-arithmetic-operators --direct
 ```
 
 To reproduce the experimental data for accuracy:
 ```bash
-python -m plot2code_new.eval_foreach_k --num-examples=132 --model-name="Qwen/Qwen2.5-VL-7B-Instruct" --temperature=0.7 --save-dir=out_foreach_k --seed=0 --program-temperature=1.0 --direct --include-arithmetic-operators
+python -m plot2code_new.eval_foreach_k --num-examples=132 --model-name="Qwen/Qwen2.5-VL-3B-Instruct" --temperature=0.7 --save-dir=out_foreach_k --seed=0 --program-temperature=1.0 --direct --include-arithmetic-operators
 ```
 
 To reproduce the experimental data for runtime:
@@ -114,11 +114,16 @@ python3 -m cruxeval_new.eval_cruxeval_input_fast --model Qwen/Qwen2.5-Coder-3B-I
 | `--num-examples` | int | `800` | Maximum number of dataset examples to evaluate |
 | `--different-constraint` | flag | `False` | Enforce different-value constraint when sampling programs |
 
-To reproduce the experimental data for accuracy and runtime, use the following commands:
+For the results in Table 1, use the following commands with models of different sizes:
+```bash 
+python3 -m cruxeval_new.eval_cruxeval_input_fast --model Qwen/Qwen2.5-Coder-3B-Instruct --temperature 0.0 --num-llm-samples 1 --num-samples 5 --different-constraint
+python3 -m cruxeval_new.eval_cruxeval_input_fast --model Qwen/Qwen2.5-Coder-3B-Instruct --temperature 0.7 --num-llm-samples 5 --num-samples 5 --different-constraint
+```
 
+To reproduce the experimental data for accuracy and runtime, use the following commands:
 ```bash
 cruxeval_new/accuracy_cruxeval_error.sh <parent_dir>
-gsm8k/time_cruxeval_simple.sh
+cruxeval_new/time_cruxeval_simple.sh
 ```
 
 ## Citation

@@ -195,9 +195,11 @@ if __name__ == "__main__":
     entropy_save_path = f"./cruxeval_new/entropy/{args.model}/{args.temperature}/"
     report_save_path = f"./cruxeval_new/report/{args.model}/{args.temperature}/"
     llm_cache_path = f"./cruxeval_new/generations/{args.model}/{args.temperature}/"
+    example_path = f"./cruxeval_new/examples/{args.model}/"
     os.makedirs(entropy_save_path, exist_ok=True)
     os.makedirs(report_save_path, exist_ok=True)
     os.makedirs(llm_cache_path, exist_ok=True)
+    os.makedirs(example_path, exist_ok=True)
 
     for i, example in pbar:
         if i >= args.num_examples:

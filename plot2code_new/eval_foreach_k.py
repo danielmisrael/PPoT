@@ -51,8 +51,8 @@ if __name__ == "__main__":
     print(f"Results will be saved to {save_path}")
 
     if args.include_arithmetic_operators:
-        import gsm8k.eval_gsm8k
-        rules, supp = gsm8k.eval_gsm8k.get_rule_supp("all", processor.tokenizer)
+        import gsm8k.eval_gsm8k_fast
+        rules, supp = gsm8k.eval_gsm8k_fast.get_rule_supp("all", processor.tokenizer)
         compile_kwargs = {"rules": rules, "supp": supp}
     else: compile_kwargs = {}
 
@@ -73,7 +73,8 @@ if __name__ == "__main__":
             S, I, L = plot2code_new.eval_plot2code.generate_code(idx, item, model, processor, image_path, save_path,
                         direct=args.direct,
                         temperature=1.0 if args.temperature == 0 else args.temperature,
-                        num_return_sequences=args.program_samples[-1], force_sampling=True)
+                        num_return_sequences=args.program_samples[-1], force_sampling=True,
+                        return_logits=True)
 
             # Compile probabilistic programs
             PP, LL = ppot.compile.programs(I, L, processor, code=S, **compile_kwargs)

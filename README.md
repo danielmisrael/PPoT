@@ -28,7 +28,7 @@ The paper includes experiments for three datasets, namely GSM8k, Plot2Code and C
 
 **Basic Usage:**
 ```bash
-python3 -m gsm8k.eval_gsm8k_fast --dataset gsm8k/gsm8k.json --model Qwen/Qwen2.5-Coder-0.5B-Instruct --temperature 0.7 --num-samples 2 --rule all --different-constraint --num-llm-samples 2 --num-examples 2
+python3 -m gsm8k.eval_gsm8k_fast --dataset gsm8k/gsm8k.json --model Qwen/Qwen2.5-Coder-3B-Instruct --temperature 0.7 --num-samples 5 --rule all --different-constraint --num-llm-samples 2 --num-examples 10
 ```
 
 **`gsm8k/eval_gsm8k_fast.py` arguments:** We describe some key arguments for this script below. There are more customizing arguments available, please checkout the script itself.
@@ -44,10 +44,16 @@ python3 -m gsm8k.eval_gsm8k_fast --dataset gsm8k/gsm8k.json --model Qwen/Qwen2.5
 | `--rule` | str | `digits` | Token rule(s) for support: `digit`, `compare`, `arithmetic`, `augment`, or `all` |
 | `--different-constraint` | flag | `False` | Enforce different-value constraint when sampling programs |
 
+For the results in Table 1, use the following commands with models of different sizes:
+```bash 
+python3 -m gsm8k.eval_gsm8k_fast --dataset gsm8k/gsm8k.json --model Qwen/Qwen2.5-Coder-3B-Instruct --temperature 0.0 --num-samples 5 --rule all --different-constraint --num-llm-samples 1 checked
+python3 -m gsm8k.eval_gsm8k_fast --dataset gsm8k/gsm8k.json --model Qwen/Qwen2.5-Coder-3B-Instruct --temperature 0.7 --num-samples 5 --rule all --different-constraint --num-llm-samples 5
+```
+
 To reproduce the experimental data for accuracy and runtime, use the following commands:
 
 ```bash
-gsm8k/accuracy_gsm8k_error.sh <parent_dir>
+gsm8k/accuracy_gsm8k_error.sh <parent_dir> <num_iterations>
 gsm8k/time_gsm8k_simple.sh
 ```
 
@@ -57,6 +63,7 @@ gsm8k/time_gsm8k_simple.sh
 ```bash
 python -m plot2code_new.eval_plot2code --num-examples=132 --temperature=0.7 --num-llm-samples=5 --num-samples=5 --save-dir=out --program-temperature=1.0 --model-name="Qwen/Qwen2.5-VL-7B-Instruct" --include-arithmetic-operators
 ```
+Checking
 
 **plot2code_new/eval_plot2code.py arguments:**
 
@@ -70,6 +77,12 @@ python -m plot2code_new.eval_plot2code --num-examples=132 --temperature=0.7 --nu
 | `--save-dir` | str | `out/` | Directory to save results |
 | `--direct` | flag | `False` | Omit the per-image instruction from the prompt |
 | `--include-arithmetic-operators` | flag | `False` | Extend token support to include arithmetic operators |
+
+For the results in Table 1, use the following commands with models of different sizes:
+```bash 
+python -m plot2code_new.eval_plot2code --num-examples=132 --temperature=0.7 --num-llm-samples=1 --num-samples=5 --save-dir=out --program-temperature=1.0 --model-name="Qwen/Qwen2.5-VL-3B-Instruct" --include-arithmetic-operators
+python -m plot2code_new.eval_plot2code --num-examples=132 --temperature=0.7 --num-llm-samples=5 --num-samples=5 --save-dir=out --program-temperature=1.0 --model-name="Qwen/Qwen2.5-VL-3B-Instruct" --include-arithmetic-operators
+```
 
 To reproduce the experimental data for accuracy:
 ```bash

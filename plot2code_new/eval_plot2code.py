@@ -156,7 +156,8 @@ def generate_code(idx: int, item: dict, model: transformers.AutoModel,
     chkpnt_path = os.path.join(output_path, "ckpt", f"{idx}")
     if os.path.isfile(chkpnt_path): return
     code, ids, logits = generate_code_for_image(model, processor, ground_truth_path,
-                                                item["instruction"] if not direct else None, **kwargs)
+                                                item["instruction"] if not direct else None, 
+                                                 **kwargs)
     return code, ids, logits
 
 def _sample_task(p: ppot.program.Program, greedy: bool, num_samples: int, t: float) -> list:
@@ -290,7 +291,8 @@ def main():
             S, I, L = generate_code(idx, item, model, processor, image_path, save_path,
                         direct=args.direct,
                         temperature=1.0 if args.temperature == 0 else args.temperature,
-                        num_return_sequences=1 if args.temperature == 0 else args.num_llm_samples)
+                        num_return_sequences=1 if args.temperature == 0 else args.num_llm_samples,
+                        return_logits=True)
 
             # Compile probabilistic programs
             PP, LL = ppot.compile.programs(I, L, processor, code=S, **compile_kwargs)

@@ -2,6 +2,11 @@ import argparse, pickle, os, time
 import tqdm, numpy as np, torch
 import ppot.utils, plot2code_new.eval_plot2code, ppot.compile
 
+"""
+CUDA_VISIBLE_DEVICES=1 python3 -m plot2code_new.time --model-name Qwen/Qwen2.5-VL-3B-Instruct --save-dir /space/poorvagarg/prepare_ppot_code/genPPS/plot2code_new/time/ --direct --include-arithmetic-operators --compact-logits
+CUDA_VISIBLE_DEVICES=0 python3 -m plot2code_new.time --model-name Qwen/Qwen2.5-VL-7B-Instruct --save-dir /space/poorvagarg/prepare_ppot_code/genPPS/plot2code_new/time/ --direct --include-arithmetic-operators --compact-logits
+"""
+
 def get_save_path(out_path: str, model_name: str, args, append: str = None) -> str:
     """Get save path for generated code"""
     model_name = model_name.split("/")[-1]
@@ -53,8 +58,8 @@ if __name__ == "__main__":
     print(f"Results will be saved to {save_path}")
 
     if args.include_arithmetic_operators:
-        import gsm8k.eval_gsm8k
-        rules, supp = gsm8k.eval_gsm8k.get_rule_supp("all", processor.tokenizer)
+        import gsm8k.eval_gsm8k_fast
+        rules, supp = gsm8k.eval_gsm8k_fast.get_rule_supp("all", processor.tokenizer)
         supp_tensor = torch.cat(supp).unique()
         compile_kwargs = {"rules": rules, "supp": supp}
         compact_logits_kwargs = {"supp_ids": supp_tensor}

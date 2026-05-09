@@ -9,6 +9,7 @@ examples/
 !requirements.txt
 *.pkl
 *.png
+!assets/*.png
 *.pdf
 *.pickle
 *.model

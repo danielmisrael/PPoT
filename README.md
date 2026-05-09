@@ -4,6 +4,8 @@
 
 Probabilistic Programs of Thought is a novel test time framework to interpret LLM generated programs as probabilistic programs to enable tractable probabilistic reasoning. 
 
+![Figure 1](assets/fig1.png)
+
 This repository consists of all necessary instructions and code to reproduce the experiments in the paper.
 
 ## Setup

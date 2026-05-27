@@ -59,6 +59,12 @@ gsm8k/accuracy_gsm8k_error.sh <parent_dir> <num_iterations>
 gsm8k/time_gsm8k_simple.sh
 ```
 
+**Direct-PyMC baseline:** for the rebuttal comparison where the LLM directly emits a PyMC probabilistic program (RefineStat-inspired, single-shot — no refinement loop), use:
+```bash
+python3 -m gsm8k.eval_gsm8k_pymc --dataset gsm8k/gsm8k.json --model Qwen/Qwen2.5-Coder-7B-Instruct --temperature 0.7 --num-llm-samples 5 --num-samples 5 --num-examples 100
+```
+Outputs land in `gsm8k/report/<model>/<temperature>/pymc/` (accuracy + wall-clock) and `gsm8k/generations/<model>/<temperature>/pymc/` (generated programs, posteriors, per-example timings).
+
 ### 2. Plot2Code
 
 **Basic Usage:**

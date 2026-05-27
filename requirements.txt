@@ -11,3 +11,5 @@ regex==2024.11.6
 prettytable==3.16.0
 levenshtein==0.27.1
 lark==1.3.0
+pymc==5.16.2
+arviz==0.18.0
